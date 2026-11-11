@@ -18,7 +18,8 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 1 | DR1 | **Done** 11 Nov (see "DR1 notes") |
 | 1 | B1 | **Done** 11 Nov: compare-and-set on status inside the transaction, 409 for the loser |
 | 1 | B2 | **Done** 11 Nov: rules fire inside the approval transaction; children carry `source_entity_id` and `source_rule_id` (unique together) |
-| 1 | S1, S2, A1, A2 | Not started |
+| 1 | S1 | **Done** 11 Nov, except `POST /translate` (see "S1 notes"; needs a decision) |
+| 1 | S2, A1, A2 | Not started |
 | 2 | R1, N1, V1 (2D diagram and table) | Not started |
 | — | T1 (CI) | Not started; after Tier 2 |
 | 3 | V1 3D toggle, V2, everything else | Not started |
@@ -56,6 +57,13 @@ Recommended order: DR1 first (it gives every later slice a working local test lo
 - AI-down today: the assistant does not point to the manual form (it answers "I'm not sure I understood that"). A1 must add that. The director report shows a client-built summary under an AI heading, which is A2.
 - Not verified: the Docker path of `npm run setup` (no Docker daemon in the session that built it; the compose file passes `docker compose config`). Setup was verified against a Postgres already listening on localhost:5432.
 - Tests leave behind entity types they create (for example `loc-auth-…-PublicType`); harmless, visible in the module list until the database is recreated.
+
+**S1 notes (done 11 Nov 2026).** Metadata mutations (entity types, rules, forms, sections, subsections, parameters) need admin or director. Entity create, update and delete, values and file upload and delete need a signed-in caller; values and files also need the owner or a staff role, and an entity with no owner (for example one created by a rule) can be changed by staff only. No existing test relied on anonymous writes.
+
+- Client `status` on create: the manual form sends `status: 'submitted'`, so ignoring it outright would leave every form submission as a draft. The server now starts every entity as `draft` and honours a requested status only if the module's workflow lets the caller move their own draft there. `approved` and the like are ignored.
+- **Open: `POST /translate` is still anonymous.** The language selector is on the home, login and signup pages, so requiring login would silently switch off translation before sign-in. It changes no data. Proposed: leave it anonymous. Decision needed.
+- **Open: view and click counters** (`POST /buzz/:id/event`, `POST /meme/campaigns/:id/event`) are anonymous by design, deduplicated, and covered by existing tests. Proposed: keep as the one exception to "every write requires login". Decision needed.
+- For S2: uploaded files are readable by anyone through `GET /files/entity/:id`, `GET /files/:fileId` and the static `/uploads` path.
 
 **Database and venue network.** If the database stays on Supabase, every request depends on venue Wi-Fi, and `backend/db.js` waits up to 30 s before failing. Smallest fallback: a `docker-compose.yml` with Postgres and a `backend/.env.local.example` whose `DATABASE_URL` points at it; the same migrations and seed run unchanged. Gemini, map tiles and translation still need a network, so the demo script covers them: AI-down path above, and the map shown only if tiles load.
 

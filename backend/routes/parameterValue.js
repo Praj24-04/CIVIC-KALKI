@@ -15,6 +15,8 @@ const express = require('express');
 const router = express.Router({ mergeParams: true });
 const prisma = require('../db');
 const { canViewLocation } = require('../services/locationVisibility');
+const { verifyToken } = require('../middleware/auth');
+const { assertCanModifyEntity } = require('../services/entityAccess');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MAX_VALUES_PER_REQUEST = 200;
@@ -117,7 +119,7 @@ function validateValues(values, paramMap) {
 // Atomically create parameter values for an entity.
 // Body: { "values": [ { "parameter_id": 1, "value": "Delhi" }, … ] }
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/', async (req, res, next) => {
+router.post('/', verifyToken, async (req, res, next) => {
   try {
     const entityId = parsePositiveInt(req.params.id, 'id');
 
@@ -132,6 +134,7 @@ router.post('/', async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Civic Campaign values can only be changed through the moderated Civic Buzz workflow.', 403));
     }
+    assertCanModifyEntity(entity, req.user);
 
     // ── Body structure validation ──────────────────────────────────────────
     const { values } = req.body;
@@ -265,7 +268,7 @@ router.get('/', async (req, res, next) => {
 // (entity_id, parameter_id), we use a manual find-or-create inside
 // a sequential Prisma transaction to guarantee atomicity.
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/', async (req, res, next) => {
+router.put('/', verifyToken, async (req, res, next) => {
   try {
     const entityId = parsePositiveInt(req.params.id, 'id');
 
@@ -280,6 +283,7 @@ router.put('/', async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Civic Campaign values can only be changed through the moderated Civic Buzz workflow.', 403));
     }
+    assertCanModifyEntity(entity, req.user);
 
     // ── Body structure validation ──────────────────────────────────────────
     const { values } = req.body;

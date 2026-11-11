@@ -20,6 +20,7 @@ const { generateIntelligenceReport } = require('../services/aiSuggestion');
 const { executeWorkflowTransition, getWorkflowMasterRules, validateWorkflowTransition } = require('../services/workflowEngine');
 const { applyLocationVisibility, applyLocationVisibilityMany } = require('../services/locationVisibility');
 const prisma = require('../db');
+const { assertCanModifyEntity } = require('../services/entityAccess');
 
 // ── Helper: create an HTTP-aware error ────────────────────────────────────────
 function createError(message, statusCode) {
@@ -82,22 +83,7 @@ function haversineDistanceKm(lat1, lon1, lat2, lon2) {
 
 // ── Helper: check owner or staff role permission on entity ──────────────────
 function checkEntityOwnership(existingEntity, reqUser) {
-  if (!existingEntity || existingEntity.owner_user_id === null || existingEntity.owner_user_id === undefined) {
-    return true; // Unowned legacy entity
-  }
-
-  if (!reqUser || !reqUser.user_id) {
-    throw createError('Authentication is required to modify this entity.', 401);
-  }
-
-  const isOwner = Number(reqUser.user_id) === Number(existingEntity.owner_user_id);
-  const isPrivileged = ['admin', 'director', 'coordinator_area', 'coordinator_general'].includes(reqUser.role);
-
-  if (!isOwner && !isPrivileged) {
-    throw createError('You do not have permission to modify this entity.', 403);
-  }
-
-  return true;
+  return assertCanModifyEntity(existingEntity, reqUser);
 }
 
 // ── GET /entities/entity-types — list all EntityTypes ────────────────────────
@@ -113,7 +99,7 @@ router.get('/entity-types', async (req, res, next) => {
 });
 
 // ── POST /entities/entity-types — create a new EntityType ─────────────────────
-router.post('/entity-types', async (req, res, next) => {
+router.post('/entity-types', verifyToken, checkRole(['admin', 'director']), async (req, res, next) => {
   try {
     const { name, description, domain_id } = req.body;
     if (!name || typeof name !== 'string' || name.trim() === '') {
@@ -145,7 +131,7 @@ router.post('/entity-types', async (req, res, next) => {
 });
 
 // ── POST /entities/rules — create relationship rule ──────────────────────────
-router.post('/rules', async (req, res, next) => {
+router.post('/rules', verifyToken, checkRole(['admin', 'director']), async (req, res, next) => {
   try {
     const { source_entity_type_id, target_entity_type_id, event, auto_create, auto_approve } = req.body;
     if (!source_entity_type_id || !target_entity_type_id) {
@@ -231,7 +217,7 @@ function isAllowedWorkflowTransition({
 // POST /entities
 // Create a new entity (generic — entity_type_id determines "which type")
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/', async (req, res, next) => {
+router.post('/', verifyToken, async (req, res, next) => {
   try {
     const { entity_type_id, name, location, latitude, longitude, area, jurisdiction_id, status } = req.body;
 
@@ -285,8 +271,31 @@ router.post('/', async (req, res, next) => {
       resolvedArea = jurisdictionNode.name;
     }
 
-    // ── Create entity; ownership comes from req.user if present ───────────────
-    const ownerUserId = req.user ? req.user.user_id : null;
+    // ── Create entity; the signed-in caller is the owner ──────────────────────
+    const ownerUserId = req.user.user_id;
+
+    // ── Initial status ────────────────────────────────────────────────────────
+    // A client-supplied status is never trusted. Every entity starts as "draft".
+    // If the client asks for another status, it is honoured only when the
+    // module's workflow lets this caller move their own draft there (normally
+    // draft → submitted); anything else, such as "approved", is ignored.
+    let initialStatus = 'draft';
+    const requestedStatus = typeof status === 'string' ? status.trim().toLowerCase() : '';
+    if (requestedStatus && requestedStatus !== 'draft') {
+      const check = await validateWorkflowTransition({
+        entity: {
+          entity_type_id: parsedTypeId,
+          owner_user_id: ownerUserId,
+          area: resolvedArea,
+          status: 'draft',
+        },
+        targetStatus: requestedStatus,
+        actorRole: req.user.role,
+        actorUserId: ownerUserId,
+        actorAssignedArea: req.user.assignedArea || req.user.assigned_area || null,
+      });
+      if (check.allowed) initialStatus = requestedStatus;
+    }
 
     const entity = await prisma.entity.create({
       data: {
@@ -298,7 +307,7 @@ router.post('/', async (req, res, next) => {
         latitude: coords.latitude,
         longitude: coords.longitude,
         area: resolvedArea,
-        status: status ? String(status).trim() : 'draft',
+        status: initialStatus,
       },
       include: {
         entityType: {
@@ -552,7 +561,7 @@ router.get('/:id', async (req, res, next) => {
 // PUT /entities/:id
 // Partial update — only fields present in body are updated.
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', verifyToken, async (req, res, next) => {
   try {
     const entityId = parsePositiveInt(req.params.id, 'id');
     const { entity_type_id, name, location, area, jurisdiction_id, status } = req.body;
@@ -707,7 +716,7 @@ router.put('/:id', async (req, res, next) => {
 // Sets entity.status = 'deleted'. No rows are physically removed.
 // Children (parameter_value, file_repository, audit_log) are untouched.
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', verifyToken, async (req, res, next) => {
   try {
     const entityId = parsePositiveInt(req.params.id, 'id');
 

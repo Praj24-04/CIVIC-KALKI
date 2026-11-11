@@ -16,6 +16,8 @@ const path = require('path');
 const fs = require('fs');
 const router = express.Router();
 const prisma = require('../db');
+const { verifyToken } = require('../middleware/auth');
+const { assertCanModifyEntity } = require('../services/entityAccess');
 
 // ── Ensure uploads directory exists ──────────────────────────────────────────
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
@@ -78,7 +80,14 @@ function parsePositiveInt(value, fieldName) {
 // Upload files for an entity parameter.
 // Form fields: entity_id, parameter_id  |  File field: files (multipart)
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/upload', upload.array('files', 5), async (req, res, next) => {
+// Remove files multer already wrote when the request is then refused.
+function discardUploadedFiles(files) {
+  for (const file of files || []) {
+    if (file && file.path) fs.unlink(file.path, () => {});
+  }
+}
+
+router.post('/upload', verifyToken, upload.array('files', 5), async (req, res, next) => {
   try {
     const { entity_id, parameter_id } = req.body;
 
@@ -97,6 +106,7 @@ router.post('/upload', upload.array('files', 5), async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Campaign photos must use the scoped Civic Buzz upload endpoint.', 403));
     }
+    assertCanModifyEntity(entity, req.user);
 
     // Verify parameter exists and is a file type
     const param = await prisma.parameterMaster.findUnique({ where: { parameter_id: parsedParamId } });
@@ -142,6 +152,7 @@ router.post('/upload', upload.array('files', 5), async (req, res, next) => {
 
     return res.status(201).json({ success: true, data: fileRecords });
   } catch (err) {
+    discardUploadedFiles(req.files);
     return next(err);
   }
 });
@@ -205,7 +216,7 @@ router.get('/:fileId', async (req, res, next) => {
 // DELETE /files/:fileId
 // Remove file record and physical file
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete('/:fileId', async (req, res, next) => {
+router.delete('/:fileId', verifyToken, async (req, res, next) => {
   try {
     const fileId = parsePositiveInt(req.params.fileId, 'fileId');
     const record = await prisma.fileRepository.findUnique({
@@ -216,6 +227,7 @@ router.delete('/:fileId', async (req, res, next) => {
     if (record.entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Campaign photos are managed only through the Civic Buzz workflow.', 404));
     }
+    assertCanModifyEntity(record.entity, req.user);
 
     // Delete physical file (best effort)
     const filePath = path.join(UPLOAD_DIR, record.path);

@@ -14,6 +14,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../db');
+const { verifyToken, checkRole } = require('../middleware/auth');
 
 // ── Helper: create an HTTP-aware error ────────────────────────────────────────
 function createError(message, statusCode) {
@@ -100,7 +101,7 @@ router.get('/forms/metadata', async (req, res, next) => {
 // Create a new FormMaster record.
 // Body: { entity_type_id, form_name, version?, status? }
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/forms', async (req, res, next) => {
+router.post('/forms', verifyToken, checkRole(['admin', 'director']), async (req, res, next) => {
   try {
     const { entity_type_id, form_name, version, status } = req.body;
 
@@ -144,7 +145,7 @@ router.post('/forms', async (req, res, next) => {
 // Add a SectionMaster to a form.
 // Body: { section_name, display_order? }
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/forms/:formId/sections', async (req, res, next) => {
+router.post('/forms/:formId/sections', verifyToken, checkRole(['admin', 'director']), async (req, res, next) => {
   try {
     const formId = parsePositiveInt(req.params.formId, 'formId');
     const { section_name, display_order } = req.body;
@@ -185,7 +186,7 @@ router.post('/forms/:formId/sections', async (req, res, next) => {
 // Add a SubsectionMaster to a section.
 // Body: { subsection_name }
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/sections/:sectionId/subsections', async (req, res, next) => {
+router.post('/sections/:sectionId/subsections', verifyToken, checkRole(['admin', 'director']), async (req, res, next) => {
   try {
     const sectionId = parsePositiveInt(req.params.sectionId, 'sectionId');
     const { subsection_name } = req.body;
@@ -220,7 +221,7 @@ router.post('/sections/:sectionId/subsections', async (req, res, next) => {
 // Add a ParameterMaster to a subsection.
 // Body: { category_id, field_type?, control_type?, mandatory?, validation_rule? }
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/subsections/:subsectionId/parameters', async (req, res, next) => {
+router.post('/subsections/:subsectionId/parameters', verifyToken, checkRole(['admin', 'director']), async (req, res, next) => {
   try {
     const subsectionId = parsePositiveInt(req.params.subsectionId, 'subsectionId');
     const { category_id, field_type, control_type, mandatory, validation_rule, field_key, label, options } = req.body;
