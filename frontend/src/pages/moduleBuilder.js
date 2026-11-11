@@ -666,6 +666,14 @@ function attachWizardEvents() {
 }
 
 // Global actions for field and workflow management
+// The wizard's markup uses inline handlers such as onclick="state.step=5; renderWizard();".
+// Inline handlers run in the global scope, where this module's own names do not
+// exist, so the ones they use are exposed here (as the helpers below already are).
+// `state` is a getter because the wizard replaces the object when it is reset.
+Object.defineProperty(window, 'state', { get: () => state, configurable: true });
+window.renderWizard = renderWizard;
+window.navigate = navigate;
+
 window.addSection = () => {
   const newIdx = state.form.sections.length + 1;
   state.form.sections.push({

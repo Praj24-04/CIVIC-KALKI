@@ -134,6 +134,49 @@ async function main() {
     if (created) createdCount += 1;
   }
 
+  // Two published Civic Buzz posts on approved records, so the Buzz page is not
+  // empty when the demo runs without AI (new posts need the AI safety check).
+  // These captions were written for the seed; they are not AI output.
+  const buzzPosts = [
+    {
+      linkedName: 'Broken Playground Swings in Shivaji Park',
+      linked_type: 'issue',
+      template: 'awareness',
+      style: 'informative',
+      caption: 'Broken swings in Shivaji Park. The repair is approved. Follow it here.',
+      cta_text: 'Follow this issue',
+    },
+    {
+      linkedName: 'Clean Pune Initiative',
+      linked_type: 'initiative',
+      template: 'initiative',
+      style: 'emotional',
+      caption: 'Clean Pune starts on JM Road. One street, one weekend, everyone welcome.',
+      cta_text: 'Join the initiative',
+    },
+  ];
+  let buzzCreated = 0;
+  for (const post of buzzPosts) {
+    const linked = await prisma.entity.findFirst({ where: { name: post.linkedName, status: 'approved' } });
+    if (!linked) continue;
+    const exists = await prisma.buzzPost.findFirst({ where: { linked_id: linked.entity_id, caption: post.caption } });
+    if (exists) continue;
+    await prisma.buzzPost.create({
+      data: {
+        author_id: citizen.user_id,
+        linked_type: post.linked_type,
+        linked_id: linked.entity_id,
+        template: post.template,
+        style: post.style,
+        caption: post.caption,
+        cta_text: post.cta_text,
+        status: 'published',
+      },
+    });
+    buzzCreated += 1;
+  }
+  if (buzzCreated) console.log(`  Civic Buzz: ${buzzCreated} published post(s)`);
+
   console.log(`── Demo data ready (${createdCount} new, ${records.length - createdCount} already present) ──`);
 }
 

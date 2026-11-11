@@ -1,6 +1,6 @@
 # CIVIC-KALKI — Demo script
 
-Last checked 11 Nov 2026 against a fresh clone on a local Postgres, with no Gemini key. Walked through in the browser or through the API: sign-in for all four roles, the manual form (1.3), the approval chain and rule (2.1–2.5) and the AI-down table. Sections 3 and 5 follow the page names in the app but have not been clicked through yet; rehearse them once before the demo. Steps marked *(not built yet)* are in `docs/PLAN.md` and are filled in as their slice lands.
+Last checked 11 Nov 2026 on a local Postgres with no Gemini key. Every section below was walked through in a browser (headless Chromium), including deploying a module with a rule in the No-Code Builder. Not checked: anything that needs a real Gemini key, the map, translation, and the 3D view's frame rate on the demo laptop; rehearse those once on the laptop.
 
 ## Before the demo
 
@@ -63,7 +63,7 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 1. Each role lands on its own dashboard after sign-in.
 2. **Civic Reports** runs a report defined in metadata; a record page also offers its module's reports.
 3. In the report results, **Download PDF** and **Download Excel** save the rows shown on screen.
-4. **Civic Buzz** (citizen): posts linked to approved issues, with votes and follows.
+4. **Civic Buzz** (citizen): two seeded posts linked to approved records, with upvote and share. Creating a new post needs the AI safety check, so it needs a key.
 
 ## 6. Rule graph and ward activity
 

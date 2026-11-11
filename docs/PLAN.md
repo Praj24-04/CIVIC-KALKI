@@ -24,13 +24,14 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 1 | A2 | **Done** 11 Nov: the client-built report is labelled "Deterministic summary — not AI output"; real reports are labelled "AI-generated". The no-key fallback now lists only the record's own fields (decision 7). **Tier 1 complete.** |
 | 2 | R1 | **Done** 11 Nov: PDF and Excel built in the browser from the on-screen table, libraries loaded on click |
 | 2 | N1 | **Done** 11 Nov: header bell fed by `GET /entities/notifications`, derived from `AuditLog` and workflow metadata; `NotificationRule.notify_role` overrides recipients; nothing stored |
-| 2 | V1 (2D diagram and table) | **Done** 11 Nov: layered SVG and rules table on the Modules page, from `GET /forms/metadata`. **Tier 2 complete.** Checked by adding a module and rule through the API; not yet through the Module Builder screens |
+| 2 | V1 (2D diagram and table) | **Done** 11 Nov: layered SVG and rules table on the Modules page, from `GET /forms/metadata`. **Tier 2 complete.** Checked by deploying a module with a rule through the No-Code Builder screens |
 | — | T1 (CI) | **Done** 11 Nov: backend job (Postgres service, migrate, schema-drift check, seed, tests) and frontend build job, on every push and on pull requests to main. **Not yet seen running on GitHub:** this fork has no workflow runs at all, so Actions needs enabling in the repository's Actions tab. The same steps pass locally on an empty database |
 | 3 | B7 | **Done** 11 Nov: lineage reads the B2 source link; exact-match audit fallback only for records created before it |
 | 3 | V1 (3D) | **Done** 11 Nov: "View in 3D" toggle, 3D code loaded on click, offered only with WebGL, width ≥ 768 px and reduced motion off; pauses off screen; falls back to 2D below 30 fps. Frame rate was measured only in a headless browser, not on the demo laptop |
 | 3 | V2 | **Done (chart and table)** 11 Nov: "Civic activity across wards" on the director dashboard, bars plus sortable table, from reports that opt in through their `ReportMaster` configuration. **3D columns not built**; not on the Governance page |
 | 3 | F3 | **Done** 11 Nov: global focus-visible ring, reduced-motion block, byte-order marks removed, damaged characters repaired in 12 files |
-| 3 | Remaining Should/Could items (F2, B3, B4, M1, G2, B5, B6, F1) | Not started |
+| — | Demo rehearsal fixes | **Done** 11 Nov: the No-Code Builder wizard could not get past step 4 (its inline handlers used names that were not global); fixed and clicked through to a deployed module with a rule. Two published Civic Buzz posts are seeded so the page is not empty without AI |
+| 3 | Remaining Should/Could items (F2, B3, B4, M1, G2, B5, B6, F1), V2 3D columns | Not started |
 
 ## Tier 1 — correctness and a demo that cannot fail
 
