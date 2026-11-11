@@ -6565,3 +6565,30 @@ html, body {
 .notif-kind-queue { color: var(--primary); }
 .notif-message { font-size: 0.85rem; color: var(--text-primary); line-height: 1.35; }
 .notif-meta { font-size: 0.75rem; color: var(--text-muted); }
+
+/* ── Rule and dependency graph (components/ruleGraph.js) ──────────────────── */
+.rule-graph-card { margin-top: var(--space-6, 24px); }
+.rule-graph-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.rule-graph-sub { margin: 4px 0 0; font-size: 0.85rem; color: var(--text-secondary); }
+.rule-graph-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-secondary); }
+.rule-graph-legend li { display: flex; align-items: center; gap: 8px; }
+.rule-graph-scroll { overflow-x: auto; padding-bottom: 8px; }
+.rule-graph-svg { display: block; max-width: none; }
+.rule-graph-table-wrap { margin-top: 16px; }
+.rule-graph-caption { caption-side: top; text-align: left; padding: 0 0 8px; font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
+.rule-node rect { fill: var(--surface, #fff); stroke: var(--text-secondary, #475569); stroke-width: 1.5; }
+.rule-node-standalone rect { stroke: var(--border, #cbd5e1); }
+.rule-node:hover rect, .rule-node:focus-visible rect { stroke: var(--text-primary, #0f172a); stroke-width: 2.5; }
+.rule-node:focus-visible { outline: none; }
+.rule-node-name { font-size: 14px; font-weight: 600; fill: var(--text-primary, #0f172a); }
+.rule-node-meta { font-size: 12px; fill: var(--text-secondary, #475569); }
+.rule-edge { fill: none; stroke: var(--text-primary, #0f172a); stroke-width: 2; }
+.rule-edge-pending { stroke-dasharray: 7 5; }
+.rule-edge-off { opacity: 0.35; }
+.rule-edge-hit { fill: none; stroke: transparent; stroke-width: 16; }
+.rule-arrow-head { fill: var(--text-primary, #0f172a); }
+.rule-edge-label { font-size: 12px; fill: var(--text-secondary, #475569); paint-order: stroke; stroke: var(--surface, #fff); stroke-width: 4px; }
+.rule-edge-group.is-active .rule-edge { stroke-width: 3.5; }
+.rule-edge-group.is-active .rule-edge-label { fill: var(--text-primary, #0f172a); font-weight: 600; }
+#rule-graph-table tr.is-active td { background: var(--gray-100, #f1f5f9); }
+.rule-section-label { font-size: 12px; font-weight: 600; fill: var(--text-secondary, #475569); text-transform: uppercase; letter-spacing: 0.04em; }

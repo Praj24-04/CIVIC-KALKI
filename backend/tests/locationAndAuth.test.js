@@ -99,6 +99,12 @@ afterAll(async () => {
   } catch (_) {
     // Best-effort cleanup
   }
+  try {
+    // Entity types this run created (they would otherwise show up as modules in the app)
+    await prisma.entityType.deleteMany({ where: { name: { startsWith: TAG } } });
+  } catch (_) {
+    // Best-effort cleanup
+  }
   await prisma.$disconnect();
 }, 15000);
 

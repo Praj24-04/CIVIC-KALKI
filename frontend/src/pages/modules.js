@@ -1,6 +1,7 @@
 import { requireAuth } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
-import { entities as apiEntities } from '../api.js';
+import { entities as apiEntities, forms as apiForms } from '../api.js';
+import { renderRuleGraph } from '../components/ruleGraph.js';
 import { toastError } from '../components/toast.js';
 import { navigate } from '../router.js';
 import { getCapabilityPresentation, capabilityIcon } from '../utils/terminology.js';
@@ -43,10 +44,20 @@ export async function renderModules() {
       </div>
 
       <div id="modules-container"></div>
+      <div id="rule-graph-container"></div>
     `, 'Civic Capabilities', entityTypes);
     attachLayoutEvents();
 
     renderCapabilityDirectory(document.getElementById('modules-container'), entityTypes);
+
+    // Rule and dependency graph, drawn from the same metadata the engine runs on.
+    const graphEl = document.getElementById('rule-graph-container');
+    try {
+      const metaRes = await apiForms.getMetadata();
+      renderRuleGraph(graphEl, metaRes.data);
+    } catch (graphErr) {
+      graphEl.innerHTML = '<div class="alert alert-error" style="margin-top:24px;">The module link diagram could not be loaded.</div>';
+    }
   } catch (err) {
     toastError('Failed to load civic capabilities');
     document.getElementById('modules-container').innerHTML = `

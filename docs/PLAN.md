@@ -24,7 +24,7 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 1 | A2 | **Done** 11 Nov: the client-built report is labelled "Deterministic summary — not AI output"; real reports are labelled "AI-generated". The no-key fallback now lists only the record's own fields (decision 7). **Tier 1 complete.** |
 | 2 | R1 | **Done** 11 Nov: PDF and Excel built in the browser from the on-screen table, libraries loaded on click |
 | 2 | N1 | **Done** 11 Nov: header bell fed by `GET /entities/notifications`, derived from `AuditLog` and workflow metadata; `NotificationRule.notify_role` overrides recipients; nothing stored |
-| 2 | V1 (2D diagram and table) | Not started |
+| 2 | V1 (2D diagram and table) | **Done** 11 Nov: layered SVG and rules table on the Modules page, from `GET /forms/metadata`. **Tier 2 complete.** Checked by adding a module and rule through the API; not yet through the Module Builder screens |
 | — | T1 (CI) | Not started; after Tier 2 |
 | 3 | V1 3D toggle, V2, everything else | Not started |
 
@@ -60,7 +60,7 @@ Recommended order: DR1 first (it gives every later slice a working local test lo
 - `seed.js` rebuilds the forms of the seven core modules on every run, which deletes the field values of existing records in those modules. It must not be run against a database whose records matter. The README says so; the reset script refuses Supabase hosts.
 - AI-down today: the assistant does not point to the manual form (it answers "I'm not sure I understood that"). A1 must add that. The director report shows a client-built summary under an AI heading, which is A2.
 - Not verified: the Docker path of `npm run setup` (no Docker daemon in the session that built it; the compose file passes `docker compose config`). Setup was verified against a Postgres already listening on localhost:5432.
-- Tests leave behind entity types they create (for example `loc-auth-…-PublicType`); harmless, visible in the module list until the database is recreated.
+- The location test left behind an entity type it created (`loc-auth-…-PublicType`); it now removes it.
 
 **S1 notes (done 11 Nov 2026).** Metadata mutations (entity types, rules, forms, sections, subsections, parameters) need admin or director. Entity create, update and delete, values and file upload and delete need a signed-in caller; values and files also need the owner or a staff role, and an entity with no owner (for example one created by a rule) can be changed by staff only. No existing test relied on anonymous writes.
 

@@ -50,7 +50,8 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 
 1. Sign in as the admin. **Modules & Capabilities** lists the seeded modules.
 2. **No-Code Builder**: define a new module (name, sections, fields, workflow, optional rule) and deploy it.
-3. Sign in as the citizen: the new module is offered in the manual form's capability list, with no code change.
+3. **Modules & Capabilities**: the "How modules are linked" diagram now shows the new module, and an arrow for its rule, with the same rule in the table underneath. No code changed.
+4. Sign in as the citizen: the new module is offered in the manual form's capability list.
 
 ## 4. AI layer
 
@@ -66,7 +67,8 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 
 ## 6. Rule graph and ward activity
 
-*(Not built yet — V1, V2.)*
+1. As the admin, **Modules & Capabilities** → "How modules are linked": boxes are modules, arrows are rules (solid = created and approved automatically, dashed = waits for review). Click a box to open that module's records. The table below lists the same rules.
+2. 3D view and ward activity *(not built yet — V1 3D, V2)*.
 
 ## AI-down path
 
