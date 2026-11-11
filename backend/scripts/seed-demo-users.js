@@ -48,7 +48,8 @@ async function main() {
       email: 'coordinator_area@example.com',
       password: 'Password123',
       role: 'coordinator_area',
-      assignedArea: 'Sector 5',
+      // Must match the area of the "submitted" records in seedDemoData.js.
+      assignedArea: 'Kothrud',
     },
     {
       name: 'General Coordinator',

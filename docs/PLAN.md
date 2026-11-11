@@ -15,7 +15,8 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 
 | Tier | Slices | Status |
 |---|---|---|
-| 1 | S1, S2, B1, B2, A1, A2, DR1 | Not started |
+| 1 | DR1 | **Done** 11 Nov (see "DR1 notes") |
+| 1 | B1, B2, S1, S2, A1, A2 | Not started |
 | 2 | R1, N1, V1 (2D diagram and table) | Not started |
 | — | T1 (CI) | Not started; after Tier 2 |
 | 3 | V1 3D toggle, V2, everything else | Not started |
@@ -42,6 +43,17 @@ Recommended order: DR1 first (it gives every later slice a working local test lo
 4. **README "Run locally"** section: prerequisites, the two commands, accounts, reset, switching database.
 5. **`docs/DEMO_SCRIPT.md`**: the click path for each deliverable, with an **AI-down path** (unset the key or disconnect: the assistant points to the manual form, the director report shows the deterministic label, governance runs in deterministic-only mode).
 6. **Verify in a fresh clone** in an empty directory, following only the README.
+
+**DR1 notes (done 11 Nov 2026).** Test baseline before any change: 185 of 198 passing; after DR1: 198 of 198, with no Gemini key. Corrections to this plan found while doing it:
+
+- The migrations did not reproduce the schema (`JurisdictionMaster`, `Entity` coordinates and jurisdiction, `EntityType.location_visibility`, `AIExecutionLog.analysis_type` had been applied with `db push`). Added `20261111000000_schema_catch_up`, written so it is a no-op where the change already exists.
+- `npm ci` failed in `backend/` (lockfile out of sync) and `npm test` never exited (agent session timer). Both fixed.
+- The tests depended on things only the shared database had: a Gemini key in the environment (Buzz suite now sets a dummy one; the SDK is mocked), the Civic Campaign module (`seedMeme.js`, now part of `seed:all`) and a "Kothrud" locality (now in `seedDemoData.js`). Test 3.13 read campaign impact anonymously although the route requires a moderator; it now signs in as admin.
+- "Park Renovation Request" exists only in the shared database, not in `seed.js`; the demo records use Movement and Grievance.
+- `seed.js` rebuilds the forms of the seven core modules on every run, which deletes the field values of existing records in those modules. It must not be run against a database whose records matter. The README says so; the reset script refuses Supabase hosts.
+- AI-down today: the assistant does not point to the manual form (it answers "I'm not sure I understood that"). A1 must add that. The director report shows a client-built summary under an AI heading, which is A2.
+- Not verified: the Docker path of `npm run setup` (no Docker daemon in the session that built it; the compose file passes `docker compose config`). Setup was verified against a Postgres already listening on localhost:5432.
+- Tests leave behind entity types they create (for example `loc-auth-…-PublicType`); harmless, visible in the module list until the database is recreated.
 
 **Database and venue network.** If the database stays on Supabase, every request depends on venue Wi-Fi, and `backend/db.js` waits up to 30 s before failing. Smallest fallback: a `docker-compose.yml` with Postgres and a `backend/.env.local.example` whose `DATABASE_URL` points at it; the same migrations and seed run unchanged. Gemini, map tiles and translation still need a network, so the demo script covers them: AI-down path above, and the map shown only if tiles load.
 

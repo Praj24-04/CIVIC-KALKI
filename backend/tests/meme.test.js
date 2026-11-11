@@ -531,20 +531,21 @@ describe('Suite 3 � Meme API Integration', () => {
     // Publish
     await request(app).post(`/meme/campaigns/${campaignId}/transition`).set(adminHeaders).send({ to_status: 'published' });
 
+    // Impact is moderator-only (the route requires a moderator role), so read it as admin.
     // Impact should be zero before any events
-    const beforeRes = await request(app).get(`/meme/campaigns/${campaignId}/impact`);
+    const beforeRes = await request(app).get(`/meme/campaigns/${campaignId}/impact`).set(adminHeaders);
     expect(beforeRes.status).toBe(200);
     expect(beforeRes.body.data.views).toBe(0);
 
     // Record a view
     await request(app).post(`/meme/campaigns/${campaignId}/event`).set('X-Requested-With', 'ck-web').send({ event_type: 'view', session_id: 'test-session-xyz' });
 
-    const afterRes = await request(app).get(`/meme/campaigns/${campaignId}/impact`);
+    const afterRes = await request(app).get(`/meme/campaigns/${campaignId}/impact`).set(adminHeaders);
     expect(afterRes.body.data.views).toBe(1);
 
     // Second view with same session should be deduped
     await request(app).post(`/meme/campaigns/${campaignId}/event`).set('X-Requested-With', 'ck-web').send({ event_type: 'view', session_id: 'test-session-xyz' });
-    const afterDupRes = await request(app).get(`/meme/campaigns/${campaignId}/impact`);
+    const afterDupRes = await request(app).get(`/meme/campaigns/${campaignId}/impact`).set(adminHeaders);
     expect(afterDupRes.body.data.views).toBe(1);
   });
 

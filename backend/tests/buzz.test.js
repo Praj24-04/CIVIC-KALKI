@@ -75,7 +75,12 @@ describe('Civic Buzz Feature Suite', () => {
   let testEntity;
   let createdPostIds = [];
 
+  let originalGeminiKey;
+
   beforeAll(async () => {
+    // The SDK is mocked above; the services only need a key to be present.
+    originalGeminiKey = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = 'test-key';
     citizen1  = await createTestUser({ role: 'citizen' });
     citizen2  = await createTestUser({ role: 'citizen' });
     citizen3  = await createTestUser({ role: 'citizen' });
@@ -96,6 +101,8 @@ describe('Civic Buzz Feature Suite', () => {
   });
 
   afterAll(async () => {
+    if (originalGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = originalGeminiKey;
     // Delete created posts (cascades to votes, follows, comments, events, reports)
     if (createdPostIds.length > 0) {
       await prisma.buzzPost.deleteMany({ where: { id: { in: createdPostIds } } });

@@ -173,6 +173,8 @@ function touchSession(sessionId) {
     sessions.delete(sessionId);
     console.log(`[AGENT SESSION] Session ${sessionId} expired and removed.`);
   }, SESSION_TTL_MS);
+  // Do not keep the process (or a Jest run) alive just for session expiry.
+  if (typeof session._timer.unref === 'function') session._timer.unref();
 }
 
 function createSession(sessionId, userId, userRole) {
