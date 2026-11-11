@@ -25,7 +25,7 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 2 | R1 | **Done** 11 Nov: PDF and Excel built in the browser from the on-screen table, libraries loaded on click |
 | 2 | N1 | **Done** 11 Nov: header bell fed by `GET /entities/notifications`, derived from `AuditLog` and workflow metadata; `NotificationRule.notify_role` overrides recipients; nothing stored |
 | 2 | V1 (2D diagram and table) | **Done** 11 Nov: layered SVG and rules table on the Modules page, from `GET /forms/metadata`. **Tier 2 complete.** Checked by adding a module and rule through the API; not yet through the Module Builder screens |
-| — | T1 (CI) | Not started; after Tier 2 |
+| — | T1 (CI) | **Done** 11 Nov: backend job (Postgres service, migrate, schema-drift check, seed, tests) and frontend build job, on every push and on pull requests to main |
 | 3 | V1 3D toggle, V2, everything else | Not started |
 
 ## Tier 1 — correctness and a demo that cannot fail
