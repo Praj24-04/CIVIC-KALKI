@@ -19,7 +19,8 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 1 | B1 | **Done** 11 Nov: compare-and-set on status inside the transaction, 409 for the loser |
 | 1 | B2 | **Done** 11 Nov: rules fire inside the approval transaction; children carry `source_entity_id` and `source_rule_id` (unique together) |
 | 1 | S1 | **Done** 11 Nov, except `POST /translate` (see "S1 notes"; needs a decision) |
-| 1 | S2, A1, A2 | Not started |
+| 1 | S2 | **Done** 11 Nov, except anonymous `GET /entities/:id` on a record that is not approved (see "S2 notes"; needs a decision) |
+| 1 | A1, A2 | Not started |
 | 2 | R1, N1, V1 (2D diagram and table) | Not started |
 | — | T1 (CI) | Not started; after Tier 2 |
 | 3 | V1 3D toggle, V2, everything else | Not started |
@@ -64,6 +65,11 @@ Recommended order: DR1 first (it gives every later slice a working local test lo
 - **Open: `POST /translate` is still anonymous.** The language selector is on the home, login and signup pages, so requiring login would silently switch off translation before sign-in. It changes no data. Proposed: leave it anonymous. Decision needed.
 - **Open: view and click counters** (`POST /buzz/:id/event`, `POST /meme/campaigns/:id/event`) are anonymous by design, deduplicated, and covered by existing tests. Proposed: keep as the one exception to "every write requires login". Decision needed.
 - For S2: uploaded files are readable by anyone through `GET /files/entity/:id`, `GET /files/:fileId` and the static `/uploads` path.
+
+**S2 notes (done 11 Nov 2026).** Anonymous `GET /entities` returns approved records only, whatever filter is sent. Owner email goes only to staff and to the owner. Audit and lineage need login. Anonymous reads of values and files work only for approved records. `limit` is capped at 100. A test walks the public read endpoints and fails on any `email` key.
+
+- **Open: anonymous `GET /entities/:id` on a draft or submitted record still returns 200** (name, area, status and owner name; no location, no email). The existing test `locationAndAuth.test.js` "full location visibility lifecycle" asserts exactly that 200, so returning 404 means changing an existing test's expectation. Proposed: return 404 and update the two assertions. Decision needed.
+- Not changed: files under the static `/uploads` path are readable by anyone who has the file name (names carry a random suffix). Any signed-in citizen can still read any other citizen's record by id; the plan only scopes anonymous reads.
 
 **Database and venue network.** If the database stays on Supabase, every request depends on venue Wi-Fi, and `backend/db.js` waits up to 30 s before failing. Smallest fallback: a `docker-compose.yml` with Postgres and a `backend/.env.local.example` whose `DATABASE_URL` points at it; the same migrations and seed run unchanged. Gemini, map tiles and translation still need a network, so the demo script covers them: AI-down path above, and the map shown only if tiles load.
 

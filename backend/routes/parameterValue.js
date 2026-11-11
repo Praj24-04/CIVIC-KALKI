@@ -16,7 +16,7 @@ const router = express.Router({ mergeParams: true });
 const prisma = require('../db');
 const { canViewLocation } = require('../services/locationVisibility');
 const { verifyToken } = require('../middleware/auth');
-const { assertCanModifyEntity } = require('../services/entityAccess');
+const { assertCanModifyEntity, assertCanReadEntityData } = require('../services/entityAccess');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MAX_VALUES_PER_REQUEST = 200;
@@ -224,6 +224,7 @@ router.get('/', async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Civic Campaign values are available only through the Civic Buzz endpoints.', 404));
     }
+    assertCanReadEntityData(entity, req.user);
 
     // ── Fetch values ───────────────────────────────────────────────────────
     let parameterValues = await prisma.parameterValue.findMany({

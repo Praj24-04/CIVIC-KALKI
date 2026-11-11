@@ -17,7 +17,7 @@ const fs = require('fs');
 const router = express.Router();
 const prisma = require('../db');
 const { verifyToken } = require('../middleware/auth');
-const { assertCanModifyEntity } = require('../services/entityAccess');
+const { assertCanModifyEntity, assertCanReadEntityData } = require('../services/entityAccess');
 
 // ── Ensure uploads directory exists ──────────────────────────────────────────
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
@@ -172,6 +172,7 @@ router.get('/entity/:id', async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Campaign photos are served only through the scoped Civic Buzz endpoint.', 404));
     }
+    assertCanReadEntityData(entity, req.user);
     const files = await prisma.fileRepository.findMany({
       where: { entity_id: entityId },
       include: {
@@ -200,6 +201,7 @@ router.get('/:fileId', async (req, res, next) => {
     if (record.entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Campaign photos are served only through the scoped Civic Buzz endpoint.', 404));
     }
+    assertCanReadEntityData(record.entity, req.user);
 
     const filePath = path.join(UPLOAD_DIR, record.path);
     if (!fs.existsSync(filePath)) {

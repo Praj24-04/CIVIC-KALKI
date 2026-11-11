@@ -20,7 +20,10 @@ const { generateIntelligenceReport } = require('../services/aiSuggestion');
 const { executeWorkflowTransition, getWorkflowMasterRules, validateWorkflowTransition } = require('../services/workflowEngine');
 const { applyLocationVisibility, applyLocationVisibilityMany } = require('../services/locationVisibility');
 const prisma = require('../db');
-const { assertCanModifyEntity } = require('../services/entityAccess');
+const { assertCanModifyEntity, ownerSelectFor, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
+
+// Largest page a client may ask for.
+const MAX_PAGE_SIZE = 100;
 
 // ── Helper: create an HTTP-aware error ────────────────────────────────────────
 function createError(message, statusCode) {
@@ -336,9 +339,10 @@ router.get('/', async (req, res, next) => {
   try {
     // ── Pagination ────────────────────────────────────────────────────────────
     const page = req.query.page ? parsePositiveInt(req.query.page, 'page') : 1;
-    const limit = req.query.limit
-      ? parsePositiveInt(req.query.limit, 'limit')
-      : 20;
+    const limit = Math.min(
+      req.query.limit ? parsePositiveInt(req.query.limit, 'limit') : 20,
+      MAX_PAGE_SIZE
+    );
     const skip = (page - 1) * limit;
 
     // ── Filters ───────────────────────────────────────────────────────────────
@@ -362,6 +366,11 @@ router.get('/', async (req, res, next) => {
 
     if (req.query.area !== undefined && req.query.area !== '') {
       where.area = String(req.query.area).trim();
+    }
+
+    // Anonymous visitors see approved records only, whatever status they ask for
+    if (!req.user) {
+      where.status = PUBLIC_STATUS;
     }
 
     // Citizens can strictly only view entities initiated by themselves
@@ -394,7 +403,10 @@ router.get('/', async (req, res, next) => {
             select: { entity_type_id: true, name: true, location_visibility: true },
           },
           owner: {
-            select: { user_id: true, name: true, email: true },
+            // Citizens only ever list their own records, so their own email is all they can see here.
+            select: req.user && req.user.role === 'citizen'
+              ? { user_id: true, name: true, email: true }
+              : ownerSelectFor(req.user),
           },
           jurisdiction: true,
         },
@@ -548,6 +560,13 @@ router.get('/:id', async (req, res, next) => {
     }
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Civic Campaign content is available only through the Civic Buzz endpoints.', 404));
+    }
+
+    // The owner's email goes only to staff and to the owner themselves.
+    if (entity.owner) {
+      const isOwner = req.user && Number(req.user.user_id) === Number(entity.owner_user_id);
+      const isStaff = req.user && STAFF_ROLES.includes(req.user.role);
+      if (!isOwner && !isStaff) delete entity.owner.email;
     }
 
     const visibleEntity = applyLocationVisibility(entity, req.user);
@@ -949,7 +968,7 @@ router.post('/:id/fire-rules', verifyToken, checkRole(['admin', 'director']), as
 // GET /entities/:id/audit
 // Fetch audit log for a single entity.
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/:id/audit', async (req, res, next) => {
+router.get('/:id/audit', verifyToken, async (req, res, next) => {
   try {
     const entityId = parsePositiveInt(req.params.id, 'id');
 
@@ -991,7 +1010,7 @@ router.get('/:id/audit', async (req, res, next) => {
 // GET /entities/:id/lineage
 // Fetch complete ecosystem lineage graph for an entity.
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/:id/lineage', async (req, res, next) => {
+router.get('/:id/lineage', verifyToken, async (req, res, next) => {
   try {
     const entityId = parsePositiveInt(req.params.id, 'id');
 

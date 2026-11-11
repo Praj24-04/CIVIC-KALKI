@@ -35,4 +35,32 @@ function assertCanModifyEntity(entity, user) {
   throw httpError('You do not have permission to modify this entity.', 403);
 }
 
-module.exports = { assertCanModifyEntity, STAFF_ROLES };
+// The one status at which a record is public.
+const PUBLIC_STATUS = 'approved';
+
+/**
+ * Anonymous visitors may read only approved records. Signed-in callers are
+ * subject to the per-route rules that already exist.
+ * Throws 401 for an anonymous caller on a record that is not public.
+ */
+function assertCanReadEntityData(entity, user) {
+  if (user && user.user_id) return true;
+  if (entity && entity.status === PUBLIC_STATUS) return true;
+  throw httpError('Sign in to view this record.', 401);
+}
+
+/**
+ * Owner fields safe to return to this caller: an email address only goes to
+ * staff and to the owner themselves, never to anonymous visitors or other citizens.
+ */
+function ownerSelectFor(user) {
+  return { user_id: true, name: true, email: Boolean(user && STAFF_ROLES.includes(user.role)) };
+}
+
+module.exports = {
+  assertCanModifyEntity,
+  assertCanReadEntityData,
+  ownerSelectFor,
+  STAFF_ROLES,
+  PUBLIC_STATUS,
+};

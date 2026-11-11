@@ -1,5 +1,6 @@
 /**
  * S1 — every write requires a signed-in caller with the right role or ownership.
+ * S2 — anonymous visitors read approved records only, and never see an email.
  *
  * Anonymous callers get 401, signed-in callers without the role or ownership
  * get 403, and a client-supplied status cannot skip the approval workflow.
@@ -12,7 +13,7 @@ const { createTestUser, cleanupAll } = require('./helpers/authHelper');
 
 const CSRF = { 'X-Requested-With': 'ck-web' };
 
-describe('S1 — access control on mutations', () => {
+describe('S1 and S2 — access control', () => {
   let owner, otherCitizen, admin;
   let movementType, parameterId, subsectionId, sectionId, formId;
   let ownedEntity, unownedEntity;
@@ -191,6 +192,103 @@ describe('S1 — access control on mutations', () => {
       });
       expect(rule.status).toBe(201);
       createdRuleIds.push(rule.body.data.rule_id);
+    });
+  });
+
+  // ── S2: what anonymous visitors can read ──
+  describe('S2 — anonymous reads', () => {
+    let approvedEntity;
+
+    // Collect every "email" key anywhere in a JSON body.
+    const emailKeys = (value, path = '$') => {
+      if (Array.isArray(value)) return value.flatMap((v, i) => emailKeys(v, `${path}[${i}]`));
+      if (value && typeof value === 'object') {
+        return Object.entries(value).flatMap(([k, v]) =>
+          (k.toLowerCase().includes('email') ? [`${path}.${k}`] : []).concat(emailKeys(v, `${path}.${k}`))
+        );
+      }
+      return [];
+    };
+
+    beforeAll(async () => {
+      approvedEntity = await prisma.entity.create({
+        data: {
+          entity_type_id: movementType.entity_type_id,
+          owner_user_id: owner.user.user_id,
+          name: 'Access Control Approved Entity',
+          status: 'approved',
+        },
+      });
+    });
+
+    test('GET /entities returns approved records only, with no email', async () => {
+      for (const query of ['', '?status=draft', '?status=submitted', `?owner_user_id=${owner.user.user_id}`]) {
+        const res = await request(app).get(`/entities${query}`);
+        expect(res.status).toBe(200);
+        expect(res.body.data.every((e) => e.status === 'approved')).toBe(true);
+        expect(emailKeys(res.body)).toEqual([]);
+      }
+      const mine = await request(app).get(`/entities?owner_user_id=${owner.user.user_id}`);
+      expect(mine.body.data.map((e) => e.entity_id)).toContain(approvedEntity.entity_id);
+      expect(mine.body.data.map((e) => e.entity_id)).not.toContain(ownedEntity.entity_id);
+    });
+
+    test('GET /entities/:id for an approved record has no email', async () => {
+      const res = await request(app).get(`/entities/${approvedEntity.entity_id}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.owner.name).toBeDefined();
+      expect(emailKeys(res.body)).toEqual([]);
+    });
+
+    test('audit and lineage require login', async () => {
+      for (const path of ['audit', 'lineage']) {
+        const anon = await request(app).get(`/entities/${approvedEntity.entity_id}/${path}`);
+        expect([path, anon.status]).toEqual([path, 401]);
+        const signedIn = await request(app).get(`/entities/${approvedEntity.entity_id}/${path}`).set(admin.headers);
+        expect([path, signedIn.status]).toEqual([path, 200]);
+      }
+    });
+
+    test('values and files: approved records only', async () => {
+      for (const path of [
+        (id) => `/entities/${id}/values`,
+        (id) => `/files/entity/${id}`,
+      ]) {
+        const draft = await request(app).get(path(ownedEntity.entity_id));
+        expect([path(0), draft.status]).toEqual([path(0), 401]);
+        const approved = await request(app).get(path(approvedEntity.entity_id));
+        expect([path(0), approved.status]).toEqual([path(0), 200]);
+        expect(emailKeys(approved.body)).toEqual([]);
+        const ownerRead = await request(app).get(path(ownedEntity.entity_id)).set(owner.headers);
+        expect([path(0), ownerRead.status]).toEqual([path(0), 200]);
+      }
+    });
+
+    test('other public read endpoints return no email', async () => {
+      for (const path of ['/entities/entity-types', '/forms/metadata', '/jurisdictions', '/buzz', '/meme/feed',
+        '/entities/nearby?lat=18.5&lng=73.8&radius_km=50']) {
+        const res = await request(app).get(path);
+        expect([path, res.status]).toEqual([path, 200]);
+        expect([path, emailKeys(res.body)]).toEqual([path, []]);
+      }
+    });
+
+    test('limit is capped at 100', async () => {
+      const res = await request(app).get('/entities?limit=100000').set(admin.headers);
+      expect(res.status).toBe(200);
+      expect(res.body.pagination.limit).toBe(100);
+      expect(res.body.data.length).toBeLessThanOrEqual(100);
+    });
+
+    test('email visibility for signed-in callers: staff and owner yes, other citizens no', async () => {
+      const path = `/entities/${approvedEntity.entity_id}`;
+      const asStaff = await request(app).get(path).set(admin.headers);
+      expect(asStaff.body.data.owner.email).toBe(owner.user.email);
+      const asOwner = await request(app).get(path).set(owner.headers);
+      expect(asOwner.body.data.owner.email).toBe(owner.user.email);
+      const asOther = await request(app).get(path).set(otherCitizen.headers);
+      expect(asOther.status).toBe(200);
+      expect(asOther.body.data.owner.email).toBeUndefined();
     });
   });
 
