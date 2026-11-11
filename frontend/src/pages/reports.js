@@ -1,7 +1,8 @@
 import { requireAuth } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { reports as apiReports, entities as apiEntities } from '../api.js';
-import { toastError } from '../components/toast.js';
+import { toastError, toastSuccess } from '../components/toast.js';
+import { readTable, exportTablePdf, exportTableExcel } from '../utils/exportTable.js';
 import { navigate } from '../router.js';
 import { getCapabilityPresentation } from '../utils/terminology.js';
 
@@ -175,8 +176,13 @@ async function runReport(reportId) {
         Metric: <strong>${escapeHtml(data.metric)}</strong> | Grouped By: <strong>${escapeHtml(data.groupBy)}</strong> | Total Groups: <strong>${rows.length}</strong>
       </div>
 
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-bottom:12px;">
+        <button class="btn btn-secondary btn-sm" id="btn-export-pdf" type="button">Download PDF</button>
+        <button class="btn btn-secondary btn-sm" id="btn-export-excel" type="button">Download Excel</button>
+      </div>
+
       <div class="table-container">
-        <table>
+        <table id="report-result-table">
           <thead>
             <tr>
               <th>${escapeHtml(data.groupBy || 'Group')}</th>
@@ -189,6 +195,31 @@ async function runReport(reportId) {
         </table>
       </div>
     `;
+
+    // Export exactly what is on screen: the files are built from the table above.
+    const exportMeta = {
+      title: data.reportName || 'Report',
+      subtitle: `Metric: ${data.metric} · Grouped by: ${data.groupBy}`,
+    };
+    const wireExport = (buttonId, exporter, label) => {
+      const btn = document.getElementById(buttonId);
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
+        const table = document.getElementById('report-result-table');
+        if (!table) return;
+        btn.disabled = true;
+        try {
+          const fileName = await exporter({ ...exportMeta, ...readTable(table) });
+          toastSuccess(`${label} downloaded: ${fileName}`);
+        } catch (exportErr) {
+          toastError(`${label} export failed: ${exportErr.message || exportErr}`);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    };
+    wireExport('btn-export-pdf', exportTablePdf, 'PDF');
+    wireExport('btn-export-excel', exportTableExcel, 'Excel');
   } catch (err) {
     toastError(err.message || 'Report execution failed');
     bodyEl.innerHTML = `<div class="alert alert-error">Execution Error: ${escapeHtml(err.message)}</div>`;

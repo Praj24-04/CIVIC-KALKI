@@ -61,7 +61,7 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 
 1. Each role lands on its own dashboard after sign-in.
 2. **Civic Reports** runs a report defined in metadata; a record page also offers its module's reports.
-3. PDF and Excel export *(not built yet — R1)*.
+3. In the report results, **Download PDF** and **Download Excel** save the rows shown on screen.
 4. **Civic Buzz** (citizen): posts linked to approved issues, with votes and follows.
 
 ## 6. Rule graph and ward activity
