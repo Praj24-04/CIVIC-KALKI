@@ -7,6 +7,7 @@ import { navigate } from '../router.js';
 import { getCapabilityPresentation, capabilityIcon, formatStatusLabel } from '../utils/terminology.js';
 import { renderAgentChatBar, attachAgentChatBarEvents } from '../components/AgentChatBar.js';
 import { renderCivicBuzzCardHtml, initCivicBuzzCarousel } from '../components/CivicBuzzCarousel.js';
+import { mountWardActivity } from '../components/wardActivity.js';
 
 function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, c =>
@@ -1300,7 +1301,10 @@ async function renderDirectorDash(container, user, metaData) {
       </div>
       ${renderRecentTable(pending, true)}
     </div>
+
+    <div id="ward-activity-widget"></div>
   `;
+  mountWardActivity(document.getElementById('ward-activity-widget'));
 }
 
 async function renderAdminDash(container, user, metaData) {

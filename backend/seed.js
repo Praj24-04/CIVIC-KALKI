@@ -677,7 +677,22 @@ const MODULE_DEFINITIONS = [
         entityType: grievanceType,
         name: 'Grievances by Area',
         output_format: 'grouped_count',
-        filters: JSON.stringify({ groupBy: 'area', metric: 'COUNT', public_stats: true }),
+        // widget: 'ward_activity' makes this report selectable in the "Civic activity
+        // across wards" dashboard widget; awaiting_statuses says which statuses count
+        // as waiting for approval there. Any report grouped by area can opt in.
+        filters: JSON.stringify({
+          groupBy: 'area', metric: 'COUNT', public_stats: true,
+          widget: 'ward_activity', awaiting_statuses: ['submitted', 'coordinator_approved'],
+        }),
+      },
+      {
+        entityType: movementType,
+        name: 'Initiatives by Area',
+        output_format: 'grouped_count',
+        filters: JSON.stringify({
+          groupBy: 'area', metric: 'COUNT', public_stats: true,
+          widget: 'ward_activity', awaiting_statuses: ['submitted', 'coordinator_approved'],
+        }),
       },
       {
         entityType: employmentType,
@@ -702,6 +717,12 @@ const MODULE_DEFINITIONS = [
             },
           });
           console.log(`Seeded ReportMaster: "${r.name}" for ${r.entityType.name}`);
+        } else if (existingRpt.filters !== r.filters) {
+          // Keep seeded report definitions in step with this file.
+          await prisma.reportMaster.update({
+            where: { report_id: existingRpt.report_id },
+            data: { filters: r.filters, output_format: r.output_format },
+          });
         }
       }
     }

@@ -6596,3 +6596,30 @@ html, body {
 .rule-graph-3d { width: 100%; height: 460px; border: 1px solid var(--border, #cbd5e1); border-radius: var(--radius-lg, 10px); overflow: hidden; }
 .rule-graph-note { margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--border, #cbd5e1); border-radius: 6px; font-size: 0.85rem; color: var(--text-secondary, #475569); }
 .rule-graph-legend[hidden], .rule-graph-3d[hidden], .rule-graph-scroll[hidden], .rule-graph-note[hidden] { display: none; }
+
+/* ── Ward activity widget (components/wardActivity.js) ────────────────────── */
+.ward-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.ward-select-label { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); }
+.ward-legend { list-style: none; display: flex; gap: 20px; flex-wrap: wrap; margin: 0 0 12px; padding: 0; font-size: 0.8rem; color: var(--text-secondary); }
+.ward-legend li { display: flex; align-items: center; gap: 6px; }
+.ward-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; background: #7c93b8; }
+.ward-swatch-awaiting { background: #1e3a8a; }
+.ward-bars { display: flex; flex-direction: column; gap: 6px; }
+.ward-row { display: grid; grid-template-columns: minmax(110px, 180px) 1fr minmax(120px, auto); align-items: center; gap: 12px; padding: 6px 8px; border-radius: 6px; text-decoration: none; color: var(--text-primary); }
+.ward-row:hover, .ward-row:focus-visible { background: var(--gray-100, #f1f5f9); outline: none; }
+.ward-row:focus-visible { box-shadow: 0 0 0 2px var(--primary); }
+.ward-name { font-size: 0.875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ward-track { display: block; height: 18px; }
+.ward-bar { display: block; height: 100%; min-width: 4px; background: #7c93b8; border-radius: 0 4px 4px 0; overflow: hidden; }
+.ward-bar-awaiting { display: block; height: 100%; background: #1e3a8a; border-right: 2px solid var(--surface, #fff); }
+.ward-bar-awaiting[style*="width:0.0%"] { border-right: 0; }
+.ward-numbers { font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
+.ward-numbers strong { color: var(--text-primary); }
+.ward-table-wrap { margin-top: 16px; }
+.ward-table-wrap:empty { display: none; }
+.ward-caption { caption-side: top; text-align: left; padding: 8px 12px; font-size: 0.8rem; color: var(--text-secondary); }
+.ward-table th[scope="row"] { text-align: left; font-weight: 600; padding: var(--space-3) var(--space-4); font-size: 0.929rem; color: var(--text-primary); border-bottom: 1px solid var(--border); }
+.ward-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
+.ward-sort:hover, .ward-sort:focus-visible { text-decoration: underline; }
+th[aria-sort="ascending"] .ward-sort::after { content: " ↑"; }
+th[aria-sort="descending"] .ward-sort::after { content: " ↓"; }

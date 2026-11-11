@@ -30,6 +30,10 @@ export async function renderEntities(params = {}, searchParams = null) {
   if (urlParams.has('name')) currentParams.name = urlParams.get('name');
   else delete currentParams.name;
 
+  // ?area= comes from links such as the ward activity widget
+  if (urlParams.has('area')) currentParams.area = urlParams.get('area');
+  else delete currentParams.area;
+
   if (urlParams.has('page')) currentParams.page = Number(urlParams.get('page'));
   else currentParams.page = 1;
   
