@@ -23,6 +23,22 @@ const STANDALONE_GAP = 20;
 const STANDALONE_PER_ROW = 4;
 const SECTION_GAP = 56;
 
+// The 3D view is offered only where it will work well: WebGL, a wide enough
+// viewport, and a user who has not asked for reduced motion.
+const MIN_3D_VIEWPORT = 768;
+let active3d = null; // the mounted 3D view, if any (one at a time)
+
+function canOffer3d() {
+  try {
+    if (window.innerWidth < MIN_3D_VIEWPORT) return false;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    const canvas = document.createElement('canvas');
+    return Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'));
+  } catch {
+    return false;
+  }
+}
+
 function escapeHtml(str) {
   return String(str ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -225,18 +241,32 @@ export function renderRuleGraph(container, metadata) {
           <h2 class="card-title" id="rule-graph-title">How modules are linked</h2>
           <p class="rule-graph-sub">${entityTypes.length} module${entityTypes.length === 1 ? '' : 's'}, ${layout.edges.length} rule${layout.edges.length === 1 ? '' : 's'}. Read from the module metadata; nothing here is hard-coded.</p>
         </div>
-        <ul class="rule-graph-legend" aria-label="Legend">
-          <li><svg width="44" height="10" aria-hidden="true"><line x1="0" y1="5" x2="44" y2="5" class="rule-edge" /></svg> created and approved automatically</li>
-          <li><svg width="44" height="10" aria-hidden="true"><line x1="0" y1="5" x2="44" y2="5" class="rule-edge rule-edge-pending" /></svg> created, waits for review</li>
-        </ul>
+        <div class="rule-graph-controls">
+          <ul class="rule-graph-legend" id="rule-graph-legend-2d" aria-label="Legend">
+            <li><svg width="44" height="10" aria-hidden="true"><line x1="0" y1="5" x2="44" y2="5" class="rule-edge" /></svg> created and approved automatically</li>
+            <li><svg width="44" height="10" aria-hidden="true"><line x1="0" y1="5" x2="44" y2="5" class="rule-edge rule-edge-pending" /></svg> created, waits for review</li>
+          </ul>
+          <ul class="rule-graph-legend" id="rule-graph-legend-3d" aria-label="Legend" hidden>
+            <li>Arrow with moving dots: created and approved automatically</li>
+            <li>Arrow without dots: created, waits for review</li>
+            <li>Sphere size: number of records. Drag to rotate, scroll to zoom.</li>
+          </ul>
+          ${entityTypes.length && canOffer3d()
+            ? '<button type="button" class="btn btn-secondary btn-sm" id="rule-graph-3d-toggle" aria-pressed="false">View in 3D</button>'
+            : ''}
+        </div>
       </div>
       <div class="card-body">
+        <div id="rule-graph-3d-note" class="rule-graph-note" role="status" hidden></div>
         ${entityTypes.length
-          ? `<div class="rule-graph-scroll">${renderSvg(layout)}</div>`
+          ? `<div class="rule-graph-scroll" id="rule-graph-2d">${renderSvg(layout)}</div>
+             <div class="rule-graph-3d" id="rule-graph-3d" hidden></div>`
           : '<div class="text-muted">No modules are configured yet.</div>'}
         <div class="rule-graph-table-wrap">${renderTable(layout.edges)}</div>
       </div>
     </section>`;
+
+  wire3dToggle(container, { entityTypes, rules: layout.edges });
 
   // Hovering a table row highlights its arrow, and the other way round.
   const setActive = (ruleId, on) => {
@@ -246,5 +276,70 @@ export function renderRuleGraph(container, metadata) {
     const id = el.getAttribute('data-rule-id');
     el.addEventListener('mouseenter', () => setActive(id, true));
     el.addEventListener('mouseleave', () => setActive(id, false));
+  });
+}
+
+/**
+ * "View in 3D" toggle. The 2D diagram always renders first; the 3D code is
+ * fetched only when the toggle is used. If the 3D view cannot hold 30 frames
+ * per second it is switched off again and the toggle is removed.
+ */
+function wire3dToggle(container, data) {
+  if (active3d) { active3d.destroy(); active3d = null; }
+
+  const toggle = container.querySelector('#rule-graph-3d-toggle');
+  if (!toggle) return;
+  const view2d = container.querySelector('#rule-graph-2d');
+  const view3d = container.querySelector('#rule-graph-3d');
+  const legend2d = container.querySelector('#rule-graph-legend-2d');
+  const legend3d = container.querySelector('#rule-graph-legend-3d');
+  const note = container.querySelector('#rule-graph-3d-note');
+
+  const show2d = (message) => {
+    if (active3d) { active3d.destroy(); active3d = null; }
+    view3d.hidden = true;
+    view2d.hidden = false;
+    legend3d.hidden = true;
+    legend2d.hidden = false;
+    toggle.textContent = 'View in 3D';
+    toggle.setAttribute('aria-pressed', 'false');
+    if (message) {
+      note.textContent = message;
+      note.hidden = false;
+      toggle.remove();
+    }
+  };
+
+  toggle.addEventListener('click', async () => {
+    if (active3d) { show2d(); return; }
+
+    toggle.disabled = true;
+    toggle.textContent = 'Loading 3D…';
+    try {
+      const { mountRuleGraph3d, MIN_FPS } = await import('./ruleGraph3d.js');
+      view2d.hidden = true;
+      legend2d.hidden = true;
+      view3d.hidden = false;
+      legend3d.hidden = false;
+      active3d = mountRuleGraph3d(view3d, data, {
+        onNodeClick: (id) => { window.location.assign(`/entities?entity_type_id=${Number(id)}`); },
+      });
+      toggle.textContent = 'View in 2D';
+      toggle.setAttribute('aria-pressed', 'true');
+
+      // Give the layout a moment to settle, then check the frame rate.
+      const mounted = active3d;
+      setTimeout(async () => {
+        if (active3d !== mounted || document.hidden) return;
+        const fps = await mounted.measureFps();
+        if (active3d === mounted && fps < MIN_FPS) {
+          show2d(`The 3D view ran at ${Math.round(fps)} frames per second on this device, so the 2D diagram is shown instead.`);
+        }
+      }, 2500);
+    } catch (err) {
+      show2d('The 3D view could not be loaded; the 2D diagram is shown instead.');
+    } finally {
+      toggle.disabled = false;
+    }
   });
 }

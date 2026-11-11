@@ -6592,3 +6592,7 @@ html, body {
 .rule-edge-group.is-active .rule-edge-label { fill: var(--text-primary, #0f172a); font-weight: 600; }
 #rule-graph-table tr.is-active td { background: var(--gray-100, #f1f5f9); }
 .rule-section-label { font-size: 12px; font-weight: 600; fill: var(--text-secondary, #475569); text-transform: uppercase; letter-spacing: 0.04em; }
+.rule-graph-controls { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+.rule-graph-3d { width: 100%; height: 460px; border: 1px solid var(--border, #cbd5e1); border-radius: var(--radius-lg, 10px); overflow: hidden; }
+.rule-graph-note { margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--border, #cbd5e1); border-radius: 6px; font-size: 0.85rem; color: var(--text-secondary, #475569); }
+.rule-graph-legend[hidden], .rule-graph-3d[hidden], .rule-graph-scroll[hidden], .rule-graph-note[hidden] { display: none; }

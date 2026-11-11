@@ -68,7 +68,8 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 ## 6. Rule graph and ward activity
 
 1. As the admin, **Modules & Capabilities** → "How modules are linked": boxes are modules, arrows are rules (solid = created and approved automatically, dashed = waits for review). Click a box to open that module's records. The table below lists the same rules.
-2. 3D view and ward activity *(not built yet — V1 3D, V2)*.
+2. **View in 3D** switches the diagram to a 3D view (drag to rotate, scroll to zoom); **View in 2D** switches back. The button is absent on narrow screens, without WebGL, or with reduced motion on; rehearse it on the demo laptop.
+3. Ward activity *(not built yet — V2)*.
 
 ## AI-down path
 
