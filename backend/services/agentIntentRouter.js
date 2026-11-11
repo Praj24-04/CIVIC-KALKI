@@ -8,7 +8,7 @@
  * No new dependencies required.
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const aiClient = require('./aiClient');
 
 // ── Helpers (mirrored from aiSuggestion.js — kept local to avoid coupling) ──
 
@@ -116,11 +116,10 @@ async function routeIntent(message, conversationHistory = [], attachedFile = nul
   if (!apiKey || apiKey.trim() === '') {
     // Graceful degradation: return unclear so the caller can show a helpful message
     console.warn('[AGENT INTENT] GEMINI_API_KEY not configured — returning unclear intent');
-    return { action_type: 'unclear', matched_capability: null, confidence: 'low' };
+    return { action_type: 'unclear', matched_capability: null, confidence: 'low', ai_unavailable: true };
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash-lite' });
+  const model = aiClient.getModel();
   const promptText = buildIntentPrompt(message, conversationHistory, attachedFile);
 
   let parsed = null;
@@ -149,8 +148,15 @@ async function routeIntent(message, conversationHistory = [], attachedFile = nul
       }
     } catch (attempt2Err) {
       console.error('[AGENT INTENT] Attempt 2 failed:', attempt2Err.message);
-      // Both attempts failed — return unclear so UI can display a clarifying question
-      return { action_type: 'unclear', matched_capability: null, confidence: 'low' };
+      // Both attempts failed — return unclear so UI can display a clarifying question.
+      // ai_unavailable tells the caller the AI could not be reached at all (as opposed
+      // to answering something unusable), so it can point to the manual form.
+      return {
+        action_type: 'unclear',
+        matched_capability: null,
+        confidence: 'low',
+        ai_unavailable: aiClient.isAiUnavailable(attempt2Err),
+      };
     }
   }
 

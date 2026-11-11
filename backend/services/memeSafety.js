@@ -6,7 +6,7 @@
  * FAIL CLOSED: AI failure marks safety_check="unavailable", never auto-passes.
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const aiClient = require('./aiClient');
 const prisma = require('../db');
 const { GEMINI_MODEL } = require('./aiSuggestion');
 const {
@@ -131,11 +131,7 @@ Respond with ONLY a valid JSON object (no markdown, no explanation):
 }
 `.trim();
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    generationConfig: { temperature: 0.1 },
-  });
+  const model = aiClient.getModel({ generationConfig: { temperature: 0.1 } });
 
   let rawResponse = '';
   let parsed = null;

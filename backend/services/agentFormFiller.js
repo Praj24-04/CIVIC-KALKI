@@ -19,7 +19,7 @@
  * Sessions expire after SESSION_TTL_MS of inactivity.
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const aiClient = require('./aiClient');
 const fs = require('fs');
 const prisma = require('../db');
 const { routeIntent } = require('./agentIntentRouter');
@@ -539,9 +539,7 @@ async function extractFormValues(session, userMessage, attachedFile = null) {
     return { extracted_values: {}, next_question: 'I\'m unable to process your request right now (AI service unavailable). Please try again later or use the manual form.', ready_for_confirmation: false };
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const CANDIDATE_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.8-flash'];
-  let model = genAI.getGenerativeModel({ model: CANDIDATE_MODELS[0] });
+  const model = aiClient.getModel();
   const promptText = buildFormFillPrompt(session, userMessage, attachedFile);
 
   // Prepare multimodal content if an image file is attached
@@ -803,6 +801,16 @@ const GUIDANCE_RESPONSE = `I can help you with the following right now:
 
 What would you like to do?`;
 
+// Not an AI answer: a fixed message shown when the AI cannot be reached.
+const AI_UNAVAILABLE_RESPONSE = `**The AI assistant is unavailable right now**, so I can't read free-text requests. This is an automatic message, not an AI answer.
+
+You can still do everything with the manual form:
+
+1. Open **Initiatives** in the menu and choose **Start a Civic Initiative**, or go to /entities/new
+2. Pick what you want to do, fill in the fields and submit
+
+Your existing requests are listed under **My Activity**.`;
+
 const UNCLEAR_RESPONSE = `I'm not sure I understood that. Here's what I can help you with:
 
 1. **Report a civic problem** (garbage, road issues, water supply, safety concerns — photos welcome!)
@@ -883,6 +891,11 @@ async function continueFormFilling(sessionId, userMessage, user, priorIntentHist
     }
 
     // UNCLEAR / LOW CONFIDENCE
+    if (intent.ai_unavailable) {
+      session.phase = 'done';
+      session.conversationHistory.push({ role: 'agent', content: AI_UNAVAILABLE_RESPONSE });
+      return { type: 'ai_unavailable', text: AI_UNAVAILABLE_RESPONSE };
+    }
     if (intent.action_type === 'unclear' || intent.confidence === 'low') {
       session.phase = 'done';
       session.conversationHistory.push({ role: 'agent', content: UNCLEAR_RESPONSE });

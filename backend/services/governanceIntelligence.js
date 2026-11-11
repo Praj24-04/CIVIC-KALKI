@@ -328,9 +328,7 @@ async function callGeminiGovernance(prompt) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
   try {
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = require('./aiClient').getModel();
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         const result = await model.generateContent(prompt);
@@ -381,7 +379,7 @@ async function logToAIExecutionLog(prompt, responseData, status, errorMsg, reque
         entity_id: null,
         requested_by_user_id: requestedByUserId || null,
         provider: 'gemini',
-        model: 'gemini-1.5-flash',
+        model: require('./aiClient').getModelName(),
         prompt: prompt ? String(prompt).slice(0, 2000) : null,
         response: responseData ? JSON.stringify(responseData).slice(0, 4000) : null,
         status: status || 'completed',

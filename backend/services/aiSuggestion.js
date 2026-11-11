@@ -4,8 +4,9 @@
  */
 
 const prisma = require('../db');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const aiClient = require('./aiClient');
+// Resolved once at load so every AIExecutionLog row names the configured model.
+const GEMINI_MODEL = aiClient.getModelName();
 
 /**
  * Clean raw model response by removing markdown code block fences if present.
@@ -155,8 +156,7 @@ The JSON object must match this exact schema:
     throw err;
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const model = aiClient.getModel();
 
   let rawResponseText = '';
   let parsedReport = null;

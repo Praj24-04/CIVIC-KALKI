@@ -16,7 +16,7 @@
 
 'use strict';
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const aiClient = require('./aiClient');
 const prisma = require('../db');
 const { GEMINI_MODEL } = require('./aiSuggestion');
 
@@ -113,8 +113,7 @@ If safe captions are not possible, return: { "captions": [], "uses_only_provided
     return { captions: [], ai_unavailable: true, reason: 'AI caption service is not configured.' };
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const model = aiClient.getModel();
 
   let parsed = null;
   let rawText = '';

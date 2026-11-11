@@ -74,8 +74,8 @@ Use this when there is no Gemini key or the venue network is unreliable. To forc
 
 | Feature | What happens today | What to do in the demo |
 |---|---|---|
-| Assistant | Replies "I'm not sure I understood that" to every message; it cannot classify without AI and does not yet point to the manual form (fixed in A1). | Skip the assistant; use the manual form in step 1.3. |
-| Director report | The page shows a notice that no key is configured and a summary built from the record's own fields. It still sits under the "AI-Assisted Decision Layer" heading (relabeled in A2). | Say plainly that this is a deterministic summary, not AI output. |
+| Assistant | Replies within 15 s that the AI assistant is unavailable, says the message is automatic and not an AI answer, and points to the manual form. | Show the message once, then use the manual form in step 1.3. |
+| Director report | The request fails within 15 s instead of hanging. With no key at all, the page shows a notice that no key is configured and a summary built from the record's own fields. It still sits under the "AI-Assisted Decision Layer" heading (relabeled in A2). | Say plainly that this is a deterministic summary, not AI output. |
 | Governance Intelligence | Runs and is labeled **DETERMINISTIC ENGINE ONLY**. | Show as is. |
 | Civic Buzz / Meme safety and captions | Posting is refused with "Content safety check is temporarily unavailable" (fail-closed). | Show existing posts only. |
 | Translation, map tiles | Need a network. | Stay in English; show the map only if tiles load. |

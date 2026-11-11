@@ -20,7 +20,8 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 1 | B2 | **Done** 11 Nov: rules fire inside the approval transaction; children carry `source_entity_id` and `source_rule_id` (unique together) |
 | 1 | S1 | **Done** 11 Nov, except `POST /translate` (see "S1 notes"; needs a decision) |
 | 1 | S2 | **Done** 11 Nov, except anonymous `GET /entities/:id` on a record that is not approved (see "S2 notes"; needs a decision) |
-| 1 | A1, A2 | Not started |
+| 1 | A1 | **Done** 11 Nov: `services/aiClient.js`, 15 s timeout, retry on parse failure only, model from `GEMINI_MODEL` |
+| 1 | A2 | Not started |
 | 2 | R1, N1, V1 (2D diagram and table) | Not started |
 | — | T1 (CI) | Not started; after Tier 2 |
 | 3 | V1 3D toggle, V2, everything else | Not started |

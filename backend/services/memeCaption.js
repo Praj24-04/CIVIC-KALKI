@@ -9,7 +9,7 @@
  *         AIExecutionLog with analysis_type="meme_caption" (no schema change)
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const aiClient = require('./aiClient');
 const prisma = require('../db');
 const { GEMINI_MODEL } = require('./aiSuggestion');
 
@@ -143,8 +143,7 @@ Generate exactly 3 caption options. Respond with ONLY a valid JSON object (no ma
     return { options: [], uses_only_provided_facts: true, ai_unavailable: true, reason: 'AI service is not configured. Please write your own caption.', logId: null };
   }
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const model = aiClient.getModel();
 
   let rawText = '';
   let parsed = null;

@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const aiClient = require('./aiClient');
 const { GEMINI_MODEL } = require('./aiSuggestion');
 
 function cleanJson(text) {
@@ -63,11 +63,7 @@ Respond with ONLY valid JSON (no markdown):
 { "safe": false, "reason": "One short user-friendly sentence explaining the issue." }
 `.trim();
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    generationConfig: { temperature: 0.05 },
-  });
+  const model = aiClient.getModel({ generationConfig: { temperature: 0.05 } });
 
   let parsed = null;
 
