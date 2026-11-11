@@ -17,7 +17,8 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 |---|---|---|
 | 1 | DR1 | **Done** 11 Nov (see "DR1 notes") |
 | 1 | B1 | **Done** 11 Nov: compare-and-set on status inside the transaction, 409 for the loser |
-| 1 | B2, S1, S2, A1, A2 | Not started |
+| 1 | B2 | **Done** 11 Nov: rules fire inside the approval transaction; children carry `source_entity_id` and `source_rule_id` (unique together) |
+| 1 | S1, S2, A1, A2 | Not started |
 | 2 | R1, N1, V1 (2D diagram and table) | Not started |
 | — | T1 (CI) | Not started; after Tier 2 |
 | 3 | V1 3D toggle, V2, everything else | Not started |

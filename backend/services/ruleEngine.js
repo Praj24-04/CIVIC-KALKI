@@ -9,25 +9,57 @@
  * Supports recursive chaining: if a newly auto-created entity itself
  * has status "approved" (via auto_approve), the engine checks for
  * further rules, up to MAX_CHAIN_DEPTH to prevent infinite loops.
+ *
+ * Atomic: everything one call creates (children, their values, audit rows,
+ * chained children) happens in a single transaction. Pass `options.tx` to run
+ * inside the caller's transaction, so that a status change and the entities it
+ * creates commit or roll back together.
+ *
+ * Idempotent: each child records its source entity and rule
+ * (Entity.source_entity_id, Entity.source_rule_id, unique together). Firing the
+ * same rule for the same source again creates nothing and reports the existing
+ * child under `skippedExisting`.
  */
 
 const prisma = require('../db');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MAX_CHAIN_DEPTH = 3;
+// Interactive-transaction limits; generous because the database may be remote.
+const TX_OPTIONS = { maxWait: 10000, timeout: 20000 };
 
 /**
  * Check EntityRelationshipRule table for matching rules and fire them.
  *
  * @param {number}  entityId   The entity that just had something happen.
  * @param {string}  eventType  What happened (e.g. "approved", "created").
- * @param {number}  [depth=0]  Current chain depth (internal — callers omit this).
- * @returns {Promise<{ rulesFired: number, createdEntities: object[], chainDepth: number, warnings: string[] }>}
+ * @param {object}  [options]
+ * @param {object}  [options.tx]  Prisma transaction client to run inside. Without it
+ *                                the engine opens its own transaction.
+ * @returns {Promise<{ rulesFired: number, createdEntities: object[], skippedExisting: object[], chainDepth: number, warnings: string[] }>}
  */
-async function checkAndFireRules(entityId, eventType, depth = 0) {
+async function checkAndFireRules(entityId, eventType, options = {}) {
+  if (options.tx) {
+    return fireRulesInTransaction(options.tx, entityId, eventType, 0);
+  }
+  // Two calls can race to create the same child: the unique (source, rule) pair
+  // rejects the later one (P2002) and rolls its transaction back. By then the
+  // winner's child is committed, so another pass finds it and reports it as skipped.
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await prisma.$transaction((tx) => fireRulesInTransaction(tx, entityId, eventType, 0), TX_OPTIONS);
+    } catch (err) {
+      if (!(err && err.code === 'P2002') || attempt >= MAX_ATTEMPTS) throw err;
+    }
+  }
+}
+
+async function fireRulesInTransaction(tx, entityId, eventType, depth) {
   const result = {
     rulesFired: 0,
     createdEntities: [],
+    skippedExisting: [],
     chainDepth: depth,
     warnings: [],
   };
@@ -41,7 +73,7 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
   }
 
   // ── 1. Fetch the source entity ────────────────────────────────────────────
-  const sourceEntity = await prisma.entity.findUnique({
+  const sourceEntity = await tx.entity.findUnique({
     where: { entity_id: entityId },
     include: {
       entityType: true,
@@ -56,7 +88,7 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
   }
 
   // ── 2. Find matching rules ────────────────────────────────────────────────
-  const matchingRules = await prisma.entityRelationshipRule.findMany({
+  const matchingRules = await tx.entityRelationshipRule.findMany({
     where: {
       source_entity_type_id: sourceEntity.entity_type_id,
       event: eventType,
@@ -64,6 +96,7 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
     include: {
       targetEntityType: true,   // need the name to build default entity name
     },
+    orderBy: { rule_id: 'asc' },
   });
 
   if (matchingRules.length === 0) {
@@ -80,6 +113,21 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
       continue;
     }
 
+    // ── Idempotency: this rule has already created a child for this source ──
+    const existingChild = await tx.entity.findUnique({
+      where: {
+        source_entity_id_source_rule_id: {
+          source_entity_id: sourceEntity.entity_id,
+          source_rule_id: rule.rule_id,
+        },
+      },
+      select: { entity_id: true, name: true, status: true },
+    });
+    if (existingChild) {
+      result.skippedExisting.push({ ...existingChild, triggered_by_rule_id: rule.rule_id });
+      continue;
+    }
+
     const targetTypeName = rule.targetEntityType.name;
     const newEntityName = `${sourceEntity.name} - ${targetTypeName}`;
     const newStatus = rule.auto_approve ? 'approved' : 'pending';
@@ -91,8 +139,8 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
     const childVisibility = rule.targetEntityType?.location_visibility || 'restricted';
     const canCopyLocation = shouldCopyLocation(parentVisibility, childVisibility);
 
-    // ── Atomic: create entity + audit log + default parameters in one transaction ──────────────
-    const { newEntity, auditEntry } = await prisma.$transaction(async (tx) => {
+    // ── Create entity + default parameters + audit log (all in the surrounding transaction) ──
+    const { newEntity, auditEntry } = await (async () => {
       const created = await tx.entity.create({
         data: {
           entity_type_id: rule.target_entity_type_id,
@@ -102,6 +150,8 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
           longitude: canCopyLocation ? sourceEntity.longitude : null,
           area: sourceEntity.area, // inherit area from source
           status: newStatus,
+          source_entity_id: sourceEntity.entity_id,
+          source_rule_id: rule.rule_id,
         },
         include: {
           entityType: {
@@ -178,7 +228,7 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
       });
 
       return { newEntity: created, auditEntry: audit };
-    });
+    })();
 
     console.log(
       `[RULE ENGINE] Rule ${rule.rule_id}: auto-created entity #${newEntity.entity_id} ` +
@@ -203,7 +253,8 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
         `checking for chained rules (depth ${depth + 1})…`
       );
 
-      const chainResult = await checkAndFireRules(
+      const chainResult = await fireRulesInTransaction(
+        tx,
         newEntity.entity_id,
         'approved',
         depth + 1
@@ -212,6 +263,7 @@ async function checkAndFireRules(entityId, eventType, depth = 0) {
       // Merge chain results into the top-level result
       result.rulesFired += chainResult.rulesFired;
       result.createdEntities.push(...chainResult.createdEntities);
+      result.skippedExisting.push(...chainResult.skippedExisting);
       result.warnings.push(...chainResult.warnings);
     }
   }

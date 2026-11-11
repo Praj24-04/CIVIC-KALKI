@@ -313,6 +313,157 @@ describe('Phase 1 — Metadata-Driven Workflow Engine Tests', () => {
     expect(after.status).toBe('coordinator_approved');
   });
 
+  // ── Test 10 (B2): rule firing is idempotent ──
+  test('Test 10: re-firing rules 10 times creates no extra entity', async () => {
+    const entity = await prisma.entity.create({
+      data: {
+        entity_type_id: movementEntityType.entity_type_id,
+        owner_user_id: citizenUser.user_id,
+        name: 'Test Movement Idempotent Rules',
+        area: 'Sector 5',
+        status: 'coordinator_approved',
+      },
+    });
+
+    const approve = await request(app)
+      .post(`/entities/${entity.entity_id}/transition`)
+      .set(directorHeaders)
+      .send({ to_status: 'approved' });
+    expect(approve.status).toBe(200);
+    expect(approve.body.ruleResult.rulesFired).toBeGreaterThan(0);
+
+    const childrenAfterApproval = await prisma.entity.findMany({
+      where: { source_entity_id: entity.entity_id },
+    });
+    expect(childrenAfterApproval.length).toBe(approve.body.ruleResult.rulesFired);
+    for (const child of childrenAfterApproval) {
+      expect(child.source_rule_id).not.toBeNull();
+    }
+
+    // Re-fire: 5 one after another, then 5 at once.
+    const refire = () =>
+      request(app)
+        .post(`/entities/${entity.entity_id}/fire-rules`)
+        .set(directorHeaders)
+        .send({ eventType: 'approved' });
+    const responses = [];
+    for (let i = 0; i < 5; i += 1) responses.push(await refire());
+    responses.push(...(await Promise.all(Array.from({ length: 5 }, refire))));
+
+    for (const res of responses) {
+      expect(res.status).toBe(200);
+      expect(res.body.data.rulesFired).toBe(0);
+      expect(res.body.data.createdEntities).toHaveLength(0);
+      expect(res.body.data.skippedExisting.length).toBe(childrenAfterApproval.length);
+    }
+
+    const childrenAfterRefire = await prisma.entity.findMany({
+      where: { source_entity_id: entity.entity_id },
+    });
+    expect(childrenAfterRefire.map((c) => c.entity_id).sort()).toEqual(
+      childrenAfterApproval.map((c) => c.entity_id).sort()
+    );
+    const sameName = await prisma.entity.count({
+      where: { name: { startsWith: 'Test Movement Idempotent Rules - ' } },
+    });
+    expect(sameName).toBe(childrenAfterApproval.length);
+  });
+
+  // ── Test 12 (B2): concurrent first-time firing still creates one child per rule ──
+  test('Test 12: 8 parallel first-time fire-rules calls create each child once', async () => {
+    const ruleCount = await prisma.entityRelationshipRule.count({
+      where: { source_entity_type_id: movementEntityType.entity_type_id, event: 'approved', auto_create: true },
+    });
+    expect(ruleCount).toBeGreaterThan(0);
+
+    // Approved directly in the database, so no rule has fired for it yet.
+    const entity = await prisma.entity.create({
+      data: {
+        entity_type_id: movementEntityType.entity_type_id,
+        owner_user_id: citizenUser.user_id,
+        name: 'Test Movement Racing Rules',
+        area: 'Sector 5',
+        status: 'approved',
+      },
+    });
+
+    const responses = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        request(app)
+          .post(`/entities/${entity.entity_id}/fire-rules`)
+          .set(directorHeaders)
+          .send({ eventType: 'approved' })
+      )
+    );
+    for (const res of responses) expect(res.status).toBe(200);
+
+    const directChildren = await prisma.entity.count({ where: { source_entity_id: entity.entity_id } });
+    expect(directChildren).toBe(ruleCount);
+    const created = responses.reduce(
+      (n, r) => n + r.body.data.createdEntities.filter((e) => e.name.startsWith('Test Movement Racing Rules - ')).length,
+      0
+    );
+    expect(created).toBe(ruleCount);
+    expect(
+      await prisma.entity.count({ where: { name: { startsWith: 'Test Movement Racing Rules - ' } } })
+    ).toBe(directChildren);
+  });
+
+  // ── Test 11 (B2): approval and rule firing are atomic ──
+  test('Test 11: a forced rule failure leaves the status unchanged and writes nothing', async () => {
+    const entity = await prisma.entity.create({
+      data: {
+        entity_type_id: movementEntityType.entity_type_id,
+        owner_user_id: citizenUser.user_id,
+        name: 'Test Movement Atomic Rules',
+        area: 'Sector 5',
+        status: 'coordinator_approved',
+      },
+    });
+
+    // Make the rule engine fail part-way: after the child entity is created,
+    // its form lookup throws.
+    const realTransaction = prisma.$transaction;
+    prisma.$transaction = function (arg1, arg2) {
+      if (typeof arg1 !== 'function') return realTransaction.call(prisma, arg1, arg2);
+      return realTransaction.call(prisma, async (tx) => {
+        tx.formMaster.findMany = async () => {
+          throw new Error('forced rule failure');
+        };
+        return arg1(tx);
+      }, arg2);
+    };
+
+    let res;
+    try {
+      res = await request(app)
+        .post(`/entities/${entity.entity_id}/transition`)
+        .set(directorHeaders)
+        .send({ to_status: 'approved' });
+    } finally {
+      prisma.$transaction = realTransaction;
+    }
+
+    expect(res.status).toBe(500);
+
+    const after = await prisma.entity.findUnique({ where: { entity_id: entity.entity_id } });
+    expect(after.status).toBe('coordinator_approved');
+    expect(await prisma.approvalHistory.count({ where: { entity_id: entity.entity_id } })).toBe(0);
+    expect(await prisma.auditLog.count({ where: { entity_id: entity.entity_id } })).toBe(0);
+    expect(await prisma.entity.count({ where: { source_entity_id: entity.entity_id } })).toBe(0);
+    expect(
+      await prisma.entity.count({ where: { name: { startsWith: 'Test Movement Atomic Rules - ' } } })
+    ).toBe(0);
+
+    // The same approval succeeds once the failure is gone.
+    const retry = await request(app)
+      .post(`/entities/${entity.entity_id}/transition`)
+      .set(directorHeaders)
+      .send({ to_status: 'approved' });
+    expect(retry.status).toBe(200);
+    expect(await prisma.entity.count({ where: { source_entity_id: entity.entity_id } })).toBeGreaterThan(0);
+  });
+
   // ── Test 8: GET /entities/:id/workflow API endpoint ──
   test('Test 8: GET /entities/:id/workflow returns metadata transitions', async () => {
     const entity = await prisma.entity.create({

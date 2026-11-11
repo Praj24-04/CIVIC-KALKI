@@ -26,9 +26,9 @@ model Domain {
 }
 
 model EntityType {
-  entity_type_id Int     @id @default(autoincrement())
-  domain_id      Int
-  name           String
+  entity_type_id      Int     @id @default(autoincrement())
+  domain_id           Int
+  name                String
   description         String?
   location_visibility String  @default("hidden")
 
@@ -60,10 +60,19 @@ model Entity {
   area            String?
   status          String?
 
+  // Set only on entities auto-created by the rule engine: the entity whose event
+  // fired the rule, and the rule. Unique together, so a rule can create at most
+  // one child per source entity however often it is fired.
+  source_entity_id Int?
+  source_rule_id   Int?
+
   // Relations to parent
-  entityType   EntityType          @relation(fields: [entity_type_id], references: [entity_type_id])
-  owner        User?               @relation("EntityOwner", fields: [owner_user_id], references: [user_id], onDelete: SetNull)
-  jurisdiction JurisdictionMaster? @relation(fields: [jurisdiction_id], references: [jurisdiction_id], onDelete: SetNull)
+  sourceEntity  Entity?                 @relation("EntitySource", fields: [source_entity_id], references: [entity_id], onDelete: SetNull)
+  childEntities Entity[]                @relation("EntitySource")
+  sourceRule    EntityRelationshipRule? @relation(fields: [source_rule_id], references: [rule_id], onDelete: SetNull)
+  entityType    EntityType              @relation(fields: [entity_type_id], references: [entity_type_id])
+  owner         User?                   @relation("EntityOwner", fields: [owner_user_id], references: [user_id], onDelete: SetNull)
+  jurisdiction  JurisdictionMaster?     @relation(fields: [jurisdiction_id], references: [jurisdiction_id], onDelete: SetNull)
 
   // Inverse relations for children
   parameterValues  ParameterValue[]
@@ -73,6 +82,7 @@ model Entity {
   fileRepositories FileRepository[]
   campaignEvents   CivicCampaignEvent[]
 
+  @@unique([source_entity_id, source_rule_id])
   @@index([owner_user_id])
   @@index([area, status])
   @@index([latitude, longitude])
@@ -82,7 +92,7 @@ model Entity {
 model JurisdictionMaster {
   jurisdiction_id Int     @id @default(autoincrement())
   name            String
-  type            String  // 'country' | 'state' | 'city' | 'ward' (arbitrary depth supported)
+  type            String // 'country' | 'state' | 'city' | 'ward' (arbitrary depth supported)
   parent_id       Int?
   code            String?
   status          String  @default("active") // 'active' | 'inactive'
@@ -100,7 +110,6 @@ model JurisdictionMaster {
   @@index([status])
 }
 
-
 model EntityRelationshipRule {
   rule_id               Int     @id @default(autoincrement())
   source_entity_type_id Int
@@ -112,6 +121,9 @@ model EntityRelationshipRule {
   // Named relations — required because both FKs point to EntityType
   sourceEntityType EntityType @relation("SourceEntityType", fields: [source_entity_type_id], references: [entity_type_id])
   targetEntityType EntityType @relation("TargetEntityType", fields: [target_entity_type_id], references: [entity_type_id])
+
+  // Entities this rule auto-created
+  createdEntities Entity[]
 }
 
 model FormMaster {
@@ -333,7 +345,7 @@ model ApprovalHistory {
 
 model AIExecutionLog {
   ai_execution_log_id  Int      @id @default(autoincrement())
-  entity_id            Int?     // Nullable: portfolio-level governance analysis has no single entity
+  entity_id            Int? // Nullable: portfolio-level governance analysis has no single entity
   requested_by_user_id Int?
   provider             String   @default("gemini")
   model                String?
@@ -341,7 +353,7 @@ model AIExecutionLog {
   response             String?
   status               String   @default("completed")
   error_message        String?
-  analysis_type        String?  // 'entity_analysis' | 'governance' — null means legacy per-entity analysis
+  analysis_type        String? // 'entity_analysis' | 'governance' — null means legacy per-entity analysis
   created_date         DateTime @default(now())
 
   entity          Entity? @relation(fields: [entity_id], references: [entity_id], onDelete: SetNull)
@@ -380,17 +392,17 @@ model User {
   created_date  DateTime @default(now())
   updated_date  DateTime @updatedAt
 
-  ownedEntities    Entity[]               @relation("EntityOwner")
-  auditLogs        AuditLog[]             @relation("AuditActor")
-  approvalHistory  ApprovalHistory[]      @relation("ApprovalActor")
-  aiExecutionLogs  AIExecutionLog[]       @relation("AIRequestedBy")
-  campaignEvents   CivicCampaignEvent[]   @relation("CampaignEventUser")
-  buzzPosts    BuzzPost[]    @relation("BuzzAuthor")
-  buzzVotes    BuzzVote[]    @relation("BuzzVoteUser")
-  buzzFollows  BuzzFollow[]  @relation("BuzzFollowUser")
-  buzzComments BuzzComment[] @relation("BuzzCommentUser")
-  buzzEvents   BuzzEvent[]   @relation("BuzzEventUser")
-  buzzReports  BuzzReport[]  @relation("BuzzReportUser")
+  ownedEntities   Entity[]             @relation("EntityOwner")
+  auditLogs       AuditLog[]           @relation("AuditActor")
+  approvalHistory ApprovalHistory[]    @relation("ApprovalActor")
+  aiExecutionLogs AIExecutionLog[]     @relation("AIRequestedBy")
+  campaignEvents  CivicCampaignEvent[] @relation("CampaignEventUser")
+  buzzPosts       BuzzPost[]           @relation("BuzzAuthor")
+  buzzVotes       BuzzVote[]           @relation("BuzzVoteUser")
+  buzzFollows     BuzzFollow[]         @relation("BuzzFollowUser")
+  buzzComments    BuzzComment[]        @relation("BuzzCommentUser")
+  buzzEvents      BuzzEvent[]          @relation("BuzzEventUser")
+  buzzReports     BuzzReport[]         @relation("BuzzReportUser")
 }
 
 // ============================================================
@@ -412,7 +424,6 @@ model CivicCampaignEvent {
   @@index([campaign_id, event_type])
 }
 
-
 // ============================================================
 // LAYER 7 --- Civic Buzz (posts, votes, follows, comments, events, reports)
 // ============================================================
@@ -431,7 +442,7 @@ model BuzzPost {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
-  author   User          @relation("BuzzAuthor",  fields: [author_id], references: [user_id], onDelete: Cascade)
+  author   User          @relation("BuzzAuthor", fields: [author_id], references: [user_id], onDelete: Cascade)
   votes    BuzzVote[]
   follows  BuzzFollow[]
   comments BuzzComment[]

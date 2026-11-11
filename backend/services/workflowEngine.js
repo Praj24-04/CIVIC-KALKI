@@ -178,8 +178,10 @@ async function executeWorkflowTransition({
 
   const previousStatus = entity.status || 'draft';
 
-  // Perform atomic update + audit log + approval history
-  const { updatedEntity } = await prisma.$transaction(async (tx) => {
+  // One transaction: status change, audit log, approval history, and — on approval —
+  // every entity the rule engine creates. If a rule fails, nothing is committed and
+  // the entity keeps its previous status.
+  const { updatedEntity, ruleResult } = await prisma.$transaction(async (tx) => {
     // Compare-and-set: the write only applies if the entity still has the status
     // the transition was validated against. A concurrent or repeated request
     // finds nothing to update and gets 409 without writing audit or history rows.
@@ -217,18 +219,18 @@ async function executeWorkflowTransition({
       },
     });
 
-    return { updatedEntity: updated };
-  });
-
-  // Trigger cascading Rule Engine if state is approved
-  let ruleResult = null;
-  if (normalizedToStatus === 'approved') {
-    try {
-      ruleResult = await checkAndFireRules(parsedId, 'approved');
-    } catch (ruleErr) {
-      console.error(`[RULE ENGINE ERROR] Failed to process rules for entity #${parsedId}:`, ruleErr);
+    let fired = null;
+    if (normalizedToStatus === 'approved') {
+      try {
+        fired = await checkAndFireRules(parsedId, 'approved', { tx });
+      } catch (ruleErr) {
+        console.error(`[RULE ENGINE ERROR] Rules failed for entity #${parsedId}; the approval was rolled back:`, ruleErr);
+        throw ruleErr;
+      }
     }
-  }
+
+    return { updatedEntity: updated, ruleResult: fired };
+  }, { maxWait: 10000, timeout: 20000 });
 
   return {
     updatedEntity,
