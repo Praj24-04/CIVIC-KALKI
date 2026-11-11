@@ -75,7 +75,7 @@ Use this when there is no Gemini key or the venue network is unreliable. To forc
 | Feature | What happens today | What to do in the demo |
 |---|---|---|
 | Assistant | Replies within 15 s that the AI assistant is unavailable, says the message is automatic and not an AI answer, and points to the manual form. | Show the message once, then use the manual form in step 1.3. |
-| Director report | The request fails within 15 s instead of hanging. With no key at all, the page shows a notice that no key is configured and a summary built from the record's own fields. It still sits under the "AI-Assisted Decision Layer" heading (relabeled in A2). | Say plainly that this is a deterministic summary, not AI output. |
+| Director report | With no key, the card is relabelled **Deterministic summary — not AI output** with a "Not AI" badge and a notice, and shows a fixed template filled from the record's fields. With a key but no network, the request fails within 15 s with an error message. | Show the label; do not present the text as analysis. |
 | Governance Intelligence | Runs and is labeled **DETERMINISTIC ENGINE ONLY**. | Show as is. |
 | Civic Buzz / Meme safety and captions | Posting is refused with "Content safety check is temporarily unavailable" (fail-closed). | Show existing posts only. |
 | Translation, map tiles | Need a network. | Stay in English; show the map only if tiles load. |

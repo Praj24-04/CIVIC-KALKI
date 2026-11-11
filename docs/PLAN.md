@@ -21,7 +21,7 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 1 | S1 | **Done** 11 Nov, except `POST /translate` (see "S1 notes"; needs a decision) |
 | 1 | S2 | **Done** 11 Nov, except anonymous `GET /entities/:id` on a record that is not approved (see "S2 notes"; needs a decision) |
 | 1 | A1 | **Done** 11 Nov: `services/aiClient.js`, 15 s timeout, retry on parse failure only, model from `GEMINI_MODEL` |
-| 1 | A2 | Not started |
+| 1 | A2 | **Done** 11 Nov: the client-built report is labelled "Deterministic summary — not AI output"; real reports are labelled "AI-generated". **Tier 1 complete.** Open: the template still fills in fixed "root cause", "risk" and "recommendation" text; removing those sections is proposed |
 | 2 | R1, N1, V1 (2D diagram and table) | Not started |
 | — | T1 (CI) | Not started; after Tier 2 |
 | 3 | V1 3D toggle, V2, everything else | Not started |

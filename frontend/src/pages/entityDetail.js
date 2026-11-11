@@ -136,10 +136,10 @@ function renderContent(container, entity, values, audit, lineage, workflowMeta, 
             </span>
             <div>
               <h3 class="card-title" style="color: var(--text-primary); margin:0;">Civic Intelligence Analysis</h3>
-              <span style="font-size: 12px; color: var(--text-muted);">AI-Assisted Decision Layer</span>
+              <span id="ai-report-source" style="font-size: 12px; color: var(--text-muted);">AI-Assisted Decision Layer</span>
             </div>
           </div>
-          <span class="badge badge-primary" style="font-weight:600;">Executive Analysis</span>
+          <span id="ai-report-badge" class="badge badge-primary" style="font-weight:600;">Executive Analysis</span>
         </div>
         <div class="card-body" id="ai-report-body" style="padding: 1.25rem;">
           <div style="text-align:center; padding: 1rem 0;">
@@ -619,11 +619,14 @@ async function handleGenerateAIReport(entity, values = []) {
   try {
     const res = await apiEntities.aiAnalysis(entityId);
     toastSuccess('Civic Intelligence Analysis generated successfully!');
+    setReportSourceLabel('ai');
     reportBody.innerHTML = renderReportSections(res.data);
   } catch (err) {
     const isKeyError = String(err.message || '').includes('GEMINI_API_KEY') || String(err.message || '').includes('Gemini API key');
     if (isKeyError) {
-      toastSuccess('Generated Civic Decision Intelligence Preview from Case Parameters');
+      // No AI was involved: say so in the toast, the card header and the notice.
+      toastError('AI is not configured. Showing a deterministic summary of the case fields instead.');
+      setReportSourceLabel('deterministic');
       const previewReport = buildCivicIntelligencePreview(entity, values);
       reportBody.innerHTML = renderReportSections(previewReport);
     } else {
@@ -633,6 +636,30 @@ async function handleGenerateAIReport(entity, values = []) {
   }
 }
 
+/**
+ * Label the report card with where its content came from, so text that was not
+ * written by the AI never sits under an AI heading.
+ */
+function setReportSourceLabel(source) {
+  const sourceEl = document.getElementById('ai-report-source');
+  const badgeEl = document.getElementById('ai-report-badge');
+  if (!sourceEl || !badgeEl) return;
+  if (source === 'deterministic') {
+    sourceEl.textContent = 'Deterministic summary — not AI output';
+    badgeEl.textContent = 'Not AI';
+    badgeEl.className = 'badge badge-pending';
+  } else {
+    sourceEl.textContent = 'AI-generated — review before acting';
+    badgeEl.textContent = 'AI output';
+    badgeEl.className = 'badge badge-primary';
+  }
+}
+
+/**
+ * Deterministic fallback shown when the AI is not configured. It is a fixed
+ * template filled from the case's own fields. It is NOT AI output and is
+ * labelled as such by setReportSourceLabel('deterministic') and its notice.
+ */
 function buildCivicIntelligencePreview(entity, values = []) {
   const paramMap = {};
   if (Array.isArray(values)) {
@@ -669,7 +696,7 @@ function buildCivicIntelligencePreview(entity, values = []) {
       "Coordinate with the relevant zonal engineering / sanitation unit to assess resource requirements.",
       "If verified, transition case status to 'coordinator_approved' to forward for Executive Director sanction."
     ],
-    notice: "Live GEMINI_API_KEY is not configured in backend/.env. This structured decision analysis was synthesized by the CIVIC-KALKI Governance Intelligence Engine using case parameters."
+    notice: "Deterministic summary, not AI output. No AI key is configured, so this text is a fixed template filled in from this case's own fields. It contains no analysis. Set GEMINI_API_KEY in backend/.env for an AI-generated report."
   };
 }
 
