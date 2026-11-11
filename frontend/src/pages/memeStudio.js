@@ -1,5 +1,5 @@
 /**
- * CIVIC-KALKI � Meme Studio Page (Section 6)
+ * CIVIC-KALKI — Meme Studio Page (Section 6)
  * 5-step wizard: 1) Template -> 2) AI Captions + edit -> 3) Attestation ->
  *                4) Live preview -> 5) Submit
  *
@@ -290,7 +290,7 @@ async function renderStep2(body) {
     ? `<div class="alert alert-warning mb-3" style="max-width:640px;">
         <strong>?? AI Unavailable</strong>
         <p style="margin-top:4px;font-size:0.875rem;">${escapeHtml(aiResult.reason || 'AI caption service is temporarily unavailable. Please write your own caption below.')}</p>
-        <p style="font-size:0.75rem;color:var(--text-secondary);">Note: Automated safety check flagged as "unavailable" � moderator will review manually.</p>
+        <p style="font-size:0.75rem;color:var(--text-secondary);">Note: Automated safety check flagged as "unavailable" — moderator will review manually.</p>
       </div>`
     : '';
 

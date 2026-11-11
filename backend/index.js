@@ -1,11 +1,11 @@
-﻿/**
- * CIVIC-KALKI â€” Express Entry Point
+/**
+ * CIVIC-KALKI — Express Entry Point
  * Mounts all routers and global middleware.
  */
 
 require('dotenv').config({ quiet: true });
 
-// â”€â”€ JWT Secret Strict Startup Validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── JWT Secret Strict Startup Validation ──────────────────────────────────────
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
   console.error('FATAL: JWT_SECRET environment variable is missing or shorter than 32 characters.');
@@ -16,10 +16,10 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 
-// â”€â”€ Trust Proxy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Trust Proxy ───────────────────────────────────────────────────────────────
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
 
-// â”€â”€ CORS Configuration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CORS Configuration ────────────────────────────────────────────────────────
 const envOrigins = (process.env.FRONTEND_ORIGIN || process.env.FRONTEND_URL || '')
   .split(',')
   .map((o) => o.trim())
@@ -63,22 +63,22 @@ const agentRoutes = require('./routes/agent');          // Conversational Agent 
 const memeRoutes  = require('./routes/meme');           // Civic Meme Studio
 const buzzRoutes  = require('./routes/buzz');           // Civic Buzz
 
-// â”€â”€ Body parsing (limit set to prevent oversized payloads) â”€â”€
+// ── Body parsing (limit set to prevent oversized payloads) ──
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
-// â”€â”€ CSRF protection for state-changing methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CSRF protection for state-changing methods ─────────────
 app.use(csrfProtection);
 
-// â”€â”€ Global optional authentication (attaches req.user if session cookie present) â”€â”€
+// ── Global optional authentication (attaches req.user if session cookie present) ──
 app.use(optionalAuth);
 
-// â”€â”€ Health check â”€â”€
+// ── Health check ──
 app.get('/health', (_req, res) => {
   res.json({ success: true, message: 'CIVIC-KALKI API is running.' });
 });
 
-// â”€â”€ Route mounting â”€â”€
+// ── Route mounting ──
 app.use('/auth', authRoutes);
 app.use('/admin', adminRoutes);
 app.use('/jurisdictions', jurisdictionRoutes);
@@ -94,14 +94,14 @@ app.use('/agent', agentRoutes);          // Conversational Agent Layer (V1)
 app.use('/meme', memeRoutes);            // Civic Meme Studio
 app.use('/buzz', buzzRoutes);            // Civic Buzz
 
-// â”€â”€ Serve uploaded files statically â”€â”€
+// ── Serve uploaded files statically ──
 const path = require('path');
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// â”€â”€ Global error handler (must be last) â”€â”€
+// ── Global error handler (must be last) ──
 app.use(errorHandler);
 
-// â”€â”€ Start server only when run directly â”€â”€
+// ── Start server only when run directly ──
 const PORT = process.env.PORT || 3000;
 if (require.main === module) {
   app.listen(PORT, () => {

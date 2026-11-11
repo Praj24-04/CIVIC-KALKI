@@ -1,5 +1,5 @@
 /**
- * CIVIC-KALKI � Meme Studio Configuration
+ * CIVIC-KALKI — Meme Studio Configuration
  * All allowlists, blocklists, and rate limits live here.
  * Changing this file is the ONLY change needed to adjust policy.
  */

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CIVIC-KALKI — Governance Intelligence Route
  * POST /governance/analyze  — Director / Admin only
  * GET  /governance/config   — Returns entity_type_id for the Donation Transaction governance module

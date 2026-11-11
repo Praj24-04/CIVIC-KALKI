@@ -1,5 +1,5 @@
 /**
- * CIVIC-KALKI � Meme Safety Pipeline (Section 4)
+ * CIVIC-KALKI — Meme Safety Pipeline (Section 4)
  * Layer a: Deterministic filter (blocklist + PII + length)
  * Layer b: AI safety classifier (separate Gemini call)
  *

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CIVIC-KALKI — Governance Intelligence Service
  *
  * Metadata-driven governance analysis engine.

@@ -1,5 +1,5 @@
 /**
- * CIVIC-KALKI � AI Caption Generation (Section 3)
+ * CIVIC-KALKI — AI Caption Generation (Section 3)
  * Generates 3 caption options per entity + template type.
  *
  * FAIL CLOSED: If Gemini unavailable, returns ai_unavailable=true with
@@ -101,7 +101,7 @@ async function generateCaptions(entityIdOrData, templateType, userId) {
   const promptText = `
 You are a civic awareness content writer helping citizens create social-media-style meme captions about real local issues.
 
-ISSUE DATA (use ONLY these facts � do NOT invent any numbers, dates, durations, or outcomes):
+ISSUE DATA (use ONLY these facts — do NOT invent any numbers, dates, durations, or outcomes):
 - Issue Category: ${category}
 - Locality (neighbourhood level): ${locality}
 - Issue Title/Description: ${issueDesc}
@@ -112,7 +112,7 @@ TONE INSTRUCTION: ${templateInstructions[templateType] || templateInstructions.a
 
 humor about the situation or the citizen's own experience, never people; never mock, blame, or imply negligence or corruption by any person, official, department, or party; no politics; never target religion, caste, community, gender, region, language, disability, or migrants; no profanity, sexual or violent content; no jokes about injury, death, disease, or disasters; no invented facts or numbers; no real or celebrity names; no copyrighted lines, characters, or meme formats; max 2 emojis; headline up to 60 chars, caption up to 140; if unsafe, return empty options plus a reason. English only.
 
-MANDATORY RULES � violations will cause rejection:
+MANDATORY RULES — violations will cause rejection:
 * Humor (if any) is about the SITUATION or the citizen's own relatable experience. NEVER about people.
 * NEVER mock, blame, name, or imply wrongdoing by any individual, official, government employee, department, political party, or leader.
 * NO political content, elections, parties, ideology.
@@ -133,7 +133,7 @@ Generate exactly 3 caption options. Respond with ONLY a valid JSON object (no ma
     { "headline": "string max 60 chars", "caption": "string max 140 chars", "humor_level": "light|none" }
   ],
   "uses_only_provided_facts": true,
-  "reason": "optional � only if options is empty"
+  "reason": "optional — only if options is empty"
 }
 `.trim();
 

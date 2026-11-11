@@ -1,5 +1,5 @@
 /**
- * CIVIC-KALKI � Meme Studio Test Suite (Section 9)
+ * CIVIC-KALKI — Meme Studio Test Suite (Section 9)
  * All deterministic; no live API calls (Gemini mocked).
  *
  * Covers:
@@ -56,9 +56,9 @@ const {
 } = require('../services/memeConfig');
 
 // ----------------------------------------------------------------------------
-// SUITE 1 � Deterministic filter unit tests (no DB, no API)
+// SUITE 1 — Deterministic filter unit tests (no DB, no API)
 // ----------------------------------------------------------------------------
-describe('Suite 1 � Deterministic Safety Filter', () => {
+describe('Suite 1 — Deterministic Safety Filter', () => {
 
   test('1.1 Clean caption passes', () => {
     const result = deterministicFilter(
@@ -131,9 +131,9 @@ describe('Suite 1 � Deterministic Safety Filter', () => {
 });
 
 // ----------------------------------------------------------------------------
-// SUITE 2 � Config correctness (unit)
+// SUITE 2 — Config correctness (unit)
 // ----------------------------------------------------------------------------
-describe('Suite 2 � Config Allowlist/Blocklist Correctness', () => {
+describe('Suite 2 — Config Allowlist/Blocklist Correctness', () => {
 
   test('2.1 Publicly visible statuses are correct', () => {
     expect(PUBLICLY_VISIBLE_STATUSES).toContain('approved');
@@ -158,9 +158,9 @@ describe('Suite 2 � Config Allowlist/Blocklist Correctness', () => {
 });
 
 // ----------------------------------------------------------------------------
-// SUITE 3 � API integration tests
+// SUITE 3 — API integration tests
 // ----------------------------------------------------------------------------
-describe('Suite 3 � Meme API Integration', () => {
+describe('Suite 3 — Meme API Integration', () => {
   let citizenUser, coordinatorUser, adminUser;
   let citizenHeaders, coordinatorHeaders, adminHeaders;
   let approvedIssue, draftIssue;

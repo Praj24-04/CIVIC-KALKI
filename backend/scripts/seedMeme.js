@@ -1,5 +1,5 @@
 /**
- * CIVIC-KALKI � Seed: Civic Campaign EntityType + Form + Parameters + Workflow
+ * CIVIC-KALKI — Seed: Civic Campaign EntityType + Form + Parameters + Workflow
  *
  * Run: node backend/scripts/seedMeme.js
  *
@@ -21,7 +21,7 @@ const prisma = new PrismaClient();
 async function run() {
   console.log('[SEED MEME] Starting Civic Campaign module seed...');
 
-  // 1. Domain � reuse existing domain_id = 1
+  // 1. Domain — reuse existing domain_id = 1
   const domain = await prisma.domain.findFirst();
   if (!domain) throw new Error('No domain found. Run main seed.js first.');
 
@@ -82,7 +82,7 @@ async function run() {
     subsection = existingSubs[0];
   }
 
-  // 7. ParameterMasters � all campaign metadata fields
+  // 7. ParameterMasters — all campaign metadata fields
   const PARAMS = [
     { field_key: 'photo_file_id', label: 'Photo File ID', field_type: 'number', mandatory: true },
     { field_key: 'headline', label: 'Headline', field_type: 'text', mandatory: true },

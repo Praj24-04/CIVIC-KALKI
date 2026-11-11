@@ -1,22 +1,22 @@
 /**
- * CIVIC-KALKI � Meme Studio API Routes (Sections 1-8)
+ * CIVIC-KALKI — Meme Studio API Routes (Sections 1-8)
  *
  * Routes:
- *   GET  /meme/config                      � allowed categories config (public)
- *   GET  /meme/eligibility/:issueId         � eligibility gate check
- *   POST /meme/captions                     � generate AI captions
- *   POST /meme/safety-check                 � run deterministic + AI safety on user caption
- *   POST /meme/campaigns                    � create campaign entity (draft)
- *   PUT  /meme/campaigns/:id               � update draft campaign
- *   POST /meme/campaigns/:id/submit        � submit for moderation
- *   GET  /meme/campaigns                   � list campaigns (filtered)
- *   GET  /meme/campaigns/:id               � get single campaign
- *   POST /meme/campaigns/:id/transition    � moderation transitions
- *   POST /meme/campaigns/:id/report        � report a published meme
- *   POST /meme/campaigns/:id/event         � record engagement event
- *   GET  /meme/campaigns/:id/impact        � impact counts
- *   GET  /meme/feed                        � Civic Buzz published feed
- *   GET  /meme/my                          � My memes (auth required)
+ *   GET  /meme/config                      — allowed categories config (public)
+ *   GET  /meme/eligibility/:issueId         — eligibility gate check
+ *   POST /meme/captions                     — generate AI captions
+ *   POST /meme/safety-check                 — run deterministic + AI safety on user caption
+ *   POST /meme/campaigns                    — create campaign entity (draft)
+ *   PUT  /meme/campaigns/:id               — update draft campaign
+ *   POST /meme/campaigns/:id/submit        — submit for moderation
+ *   GET  /meme/campaigns                   — list campaigns (filtered)
+ *   GET  /meme/campaigns/:id               — get single campaign
+ *   POST /meme/campaigns/:id/transition    — moderation transitions
+ *   POST /meme/campaigns/:id/report        — report a published meme
+ *   POST /meme/campaigns/:id/event         — record engagement event
+ *   GET  /meme/campaigns/:id/impact        — impact counts
+ *   GET  /meme/feed                        — Civic Buzz published feed
+ *   GET  /meme/my                          — My memes (auth required)
  */
 
 const express = require('express');
@@ -224,7 +224,7 @@ async function checkRateLimit(userId, action) {
   return { blocked: false };
 }
 
-// -- GET /meme/config � public config ----------------------------------------
+// -- GET /meme/config — public config ----------------------------------------
 router.get('/config', async (_req, res, next) => {
   try {
     const areas = await prisma.jurisdictionMaster.findMany({
@@ -249,7 +249,7 @@ router.get('/config', async (_req, res, next) => {
   }
 });
 
-// -- GET /meme/eligibility/:issueId � check eligibility gate -----------------
+// -- GET /meme/eligibility/:issueId — check eligibility gate -----------------
 router.get('/eligibility/:issueId', verifyToken, async (req, res, next) => {
   try {
     const issueId = parsePositiveInt(req.params.issueId, 'issueId');
@@ -286,7 +286,7 @@ router.get('/my-issues', verifyToken, async (req, res, next) => {
   }
 });
 
-// -- POST /meme/captions � AI caption generation ------------------------------
+// -- POST /meme/captions — AI caption generation ------------------------------
 router.post('/captions', verifyToken, async (req, res, next) => {
   try {
     const { issue_id, category, locality } = req.body;
@@ -345,7 +345,7 @@ router.post('/captions', verifyToken, async (req, res, next) => {
   }
 });
 
-// -- POST /meme/safety-check � validate caption (det + AI) --------------------
+// -- POST /meme/safety-check — validate caption (det + AI) --------------------
 router.post('/safety-check', verifyToken, async (req, res, next) => {
   try {
     const { headline, caption, issue_id } = req.body;
@@ -379,7 +379,7 @@ router.post('/safety-check', verifyToken, async (req, res, next) => {
   }
 });
 
-// -- POST /meme/campaigns � create campaign entity (draft) --------------------
+// -- POST /meme/campaigns — create campaign entity (draft) --------------------
 router.post('/campaigns', verifyToken, checkRole(['citizen']), async (req, res, next) => {
   try {
     const { issue_id, category, locality, headline, caption, caption_source, original_ai_suggestion, attestation_accepted } = req.body;
@@ -710,7 +710,7 @@ router.post('/campaigns/:id/submit', verifyToken, checkRole(['citizen']), async 
   }
 });
 
-// -- POST /meme/campaigns/:id/transition � moderator transitions --------------
+// -- POST /meme/campaigns/:id/transition — moderator transitions --------------
 router.post('/campaigns/:id/transition', verifyToken, async (req, res, next) => {
   try {
     const campaignId = parsePositiveInt(req.params.id, 'id');
@@ -756,7 +756,7 @@ router.post('/campaigns/:id/transition', verifyToken, async (req, res, next) => 
   }
 });
 
-// -- POST /meme/campaigns/:id/report � report a published meme ---------------
+// -- POST /meme/campaigns/:id/report — report a published meme ---------------
 router.post('/campaigns/:id/report', verifyToken, async (req, res, next) => {
   try {
     const campaignId = parsePositiveInt(req.params.id, 'id');
@@ -822,7 +822,7 @@ router.post('/campaigns/:id/report', verifyToken, async (req, res, next) => {
   }
 });
 
-// -- POST /meme/campaigns/:id/event � record engagement event -----------------
+// -- POST /meme/campaigns/:id/event — record engagement event -----------------
 router.post('/campaigns/:id/event', async (req, res, next) => {
   try {
     const campaignId = parsePositiveInt(req.params.id, 'id');
@@ -888,7 +888,7 @@ router.post('/campaigns/:id/event', async (req, res, next) => {
   }
 });
 
-// -- GET /meme/campaigns/:id/impact � impact counts --------------------------
+// -- GET /meme/campaigns/:id/impact — impact counts --------------------------
 router.get('/campaigns/:id/impact', verifyToken, checkRole(['coordinator_area', 'coordinator_general', 'admin', 'director']), async (req, res, next) => {
   try {
     const campaignId = parsePositiveInt(req.params.id, 'id');
@@ -927,7 +927,7 @@ router.get('/campaigns/:id/impact', verifyToken, checkRole(['coordinator_area', 
   }
 });
 
-// -- GET /meme/feed � Civic Buzz published feed --------------------------------
+// -- GET /meme/feed — Civic Buzz published feed --------------------------------
 router.get('/feed', async (req, res, next) => {
   try {
     const page = req.query.page ? parsePositiveInt(req.query.page, 'page') : 1;
@@ -951,7 +951,7 @@ router.get('/feed', async (req, res, next) => {
       }),
     ]);
 
-    // Build response � never expose owner identity
+    // Build response — never expose owner identity
     const linkedIds = campaigns.flatMap((campaign) => {
       const values = parameterValueMap(campaign.parameterValues);
       return values.linked_entity_id ? [Number(values.linked_entity_id)] : [];
@@ -1009,7 +1009,7 @@ router.get('/feed', async (req, res, next) => {
   }
 });
 
-// -- GET /meme/my � citizen's own campaigns ------------------------------------
+// -- GET /meme/my — citizen's own campaigns ------------------------------------
 router.get('/my', verifyToken, async (req, res, next) => {
   try {
     const userId = req.user.user_id;
@@ -1049,7 +1049,7 @@ router.get('/my', verifyToken, async (req, res, next) => {
   }
 });
 
-// -- GET /meme/campaigns/:id � single campaign (share link) -------------------
+// -- GET /meme/campaigns/:id — single campaign (share link) -------------------
 router.get('/campaigns/:id', async (req, res, next) => {
   try {
     const campaignId = parsePositiveInt(req.params.id, 'id');
@@ -1106,7 +1106,7 @@ router.get('/campaigns/:id', async (req, res, next) => {
   }
 });
 
-// -- GET /meme/campaigns � list all campaigns (admin/coordinator moderation) --
+// -- GET /meme/campaigns — list all campaigns (admin/coordinator moderation) --
 router.get('/campaigns', verifyToken, checkRole(['coordinator_area', 'coordinator_general', 'admin']), async (req, res, next) => {
   try {
     const { status, area } = req.query;

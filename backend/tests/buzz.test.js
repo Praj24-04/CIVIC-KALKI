@@ -1,5 +1,5 @@
 /**
- * CIVIC-KALKI â€” Civic Buzz Feature Test Suite
+ * CIVIC-KALKI — Civic Buzz Feature Test Suite
  *
  * Covers:
  * 1. Models & CRUD: buzz_posts, buzz_votes, buzz_follows, buzz_comments, buzz_events, buzz_reports
@@ -119,7 +119,7 @@ describe('Civic Buzz Feature Suite', () => {
     global.__civicBuzzSimulateUnsafe = false;
   });
 
-  // â”€â”€â”€ 1. POST /buzz (Create Draft & Published) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 1. POST /buzz (Create Draft & Published) ──────────────────────────────
   describe('POST /buzz', () => {
     it('creates a draft buzz post successfully', async () => {
       const res = await request(app)
@@ -197,7 +197,7 @@ describe('Civic Buzz Feature Suite', () => {
     });
   });
 
-  // â”€â”€â”€ 2. GET /buzz (Listing & Pagination) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 2. GET /buzz (Listing & Pagination) ───────────────────────────────────
   describe('GET /buzz', () => {
     it('returns published posts with vote counts, follow states, and linked issue status', async () => {
       const res = await request(app)
@@ -228,7 +228,7 @@ describe('Civic Buzz Feature Suite', () => {
     });
   });
 
-  // â”€â”€â”€ 3. PATCH /buzz/:id (Edit & Publish) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 3. PATCH /buzz/:id (Edit & Publish) ──────────────────────────────────
   describe('PATCH /buzz/:id', () => {
     let draftPostId;
 
@@ -273,7 +273,7 @@ describe('Civic Buzz Feature Suite', () => {
     });
   });
 
-  // â”€â”€â”€ 4. POST /buzz/:id/vote (Toggle) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 4. POST /buzz/:id/vote (Toggle) ──────────────────────────────────────
   describe('POST /buzz/:id/vote', () => {
     let publishedPostId;
 
@@ -314,7 +314,7 @@ describe('Civic Buzz Feature Suite', () => {
     });
   });
 
-  // â”€â”€â”€ 5. POST /buzz/:id/follow (Toggle) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 5. POST /buzz/:id/follow (Toggle) ────────────────────────────────────
   describe('POST /buzz/:id/follow', () => {
     let publishedPostId;
 
@@ -353,7 +353,7 @@ describe('Civic Buzz Feature Suite', () => {
     });
   });
 
-  // â”€â”€â”€ 6. POST & GET /buzz/:id/comments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 6. POST & GET /buzz/:id/comments ─────────────────────────────────────
   describe('Comments API', () => {
     let publishedPostId;
 
@@ -404,7 +404,7 @@ describe('Civic Buzz Feature Suite', () => {
     });
   });
 
-  // â”€â”€â”€ 7. POST /buzz/:id/event & GET /buzz/:id/stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 7. POST /buzz/:id/event & GET /buzz/:id/stats ─────────────────────────
   describe('Analytics & Stats', () => {
     let publishedPostId;
 
@@ -455,7 +455,7 @@ describe('Civic Buzz Feature Suite', () => {
     });
   });
 
-  // â”€â”€â”€ 8. POST /buzz/captions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 8. POST /buzz/captions ────────────────────────────────────────────────
   describe('POST /buzz/captions', () => {
     it('returns 3 captions with call to action', async () => {
       const res = await request(app)
@@ -477,7 +477,7 @@ describe('Civic Buzz Feature Suite', () => {
     });
   });
 
-  // â”€â”€â”€ 9. POST /buzz/:id/report (Auto-hide on 3 reports) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 9. POST /buzz/:id/report (Auto-hide on 3 reports) ─────────────────────
   describe('POST /buzz/:id/report', () => {
     let reportPostId;
 
