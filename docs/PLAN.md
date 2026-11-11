@@ -9,7 +9,7 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 - **Runs locally.** The project is demoed on one machine and is not deployed.
 - Small reversible slices; no rewrite, no change of framework or language.
 
-`CLAUDE.md` still says "Free-tier hosting only"; it should be changed to "Runs locally" when implementation starts.
+`CLAUDE.md` now says "Runs locally" (changed 11 Nov 2026).
 
 ## Status
 
@@ -111,3 +111,40 @@ Tier 1 and Tier 2 are roughly three working days in small slices. If time runs s
 1. **Schema for B2.** Add two nullable columns to `Entity` (`source_entity_id`, `source_rule_id`, unique together), no new table? Recommended: yes. Without it, idempotent rule firing, lineage and the graph all rest on matching text in audit rows.
 2. **Anonymous access (S1, S2).** Recommended: every write requires login; anonymous visitors can read only public approved items, without emails. Any test that relied on anonymous writes is updated to log in first.
 3. **Demo database.** Recommended: local Postgres as the primary on demo day, Supabase kept as the backup, both seeded from the same scripts.
+
+## Working agreement
+
+Added 11 Nov 2026 so that future sessions inherit it. The repository was checked against the assessed commit `21534dc`: the code is identical, and the Tier 1 file and line references in `docs/ASSESSMENT.md` hold.
+
+### Context
+
+- The project is NOT deployed. It is demoed locally on one laptop.
+- Deadline: Saturday 14 November 2026.
+- Stack (keep all of it): Express 5, Prisma 6, Postgres, JWT in an httpOnly cookie, Gemini via `@google/generative-ai`, Jest + Supertest; frontend is vanilla JS + Vite 5 with Leaflet, Chart.js and i18next.
+- The assessment session ran nothing: no dependencies were installed and there was no database. Install, set up a database, and run the full test suite to get a baseline before the first code change.
+- If the environment cannot run Postgres or reach npm, say so and stop. Do not mock the database to get green. Never run reset or destructive scripts against the Supabase database.
+- Secrets (`DATABASE_URL`, Gemini key) come from environment variables. Never ask for them in chat and never commit them.
+
+### Non-negotiables
+
+- The metadata-driven thesis stays: new capabilities must not need new tables, pages or controllers unless justified in writing first.
+- Existing tests keep passing. Run the tests locally before every commit. Never skip, disable or weaken a test to get green.
+- Runs locally.
+- No rewrite and no change of framework or language.
+- AI output is fail-closed, labeled AI vs deterministic, and humans confirm consequential actions.
+- No secrets in the repo.
+- Small reversible slices: one slice per commit, pushed after each. Update the status table in this file when a slice is done.
+- Do not open a pull request unless asked.
+
+### Do not do
+
+- H1 (uploads to cloud storage), G1 (persisting agent sessions), B8 (response compression): dropped.
+- B5, B6 and F1 are Could only; do not start them before Tier 2 is finished.
+- No Redis, job queue, websockets, email delivery, server-side PDF/Excel, deck.gl, React or TypeScript.
+- Nothing justified only by hosting, cold starts or memory limits.
+
+### Decisions
+
+1. **B2 schema:** add two nullable columns to `Entity` (`source_entity_id`, `source_rule_id`, unique together). No new table. APPROVED.
+2. **Anonymous access:** every write requires login; anonymous visitors can read only public approved items, without emails. Tests that relied on anonymous writes are updated to log in first. APPROVED.
+3. **Demo database:** local Postgres is the primary for the demo; Supabase is the backup; both use the same migrations and seed. APPROVED.
