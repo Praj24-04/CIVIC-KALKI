@@ -80,6 +80,7 @@ export const entities = {
   audit:      (id)              => request('GET',    `/entities/${id}/audit`),
   getLineage: (id)              => request('GET',    `/entities/${id}/lineage`),
   workflow:   (id)              => request('GET',    `/entities/${id}/workflow`),
+  notifications: (limit = 30)   => request('GET',    `/entities/notifications?limit=${encodeURIComponent(limit)}`),
   nearby:     (lat, lng, radius_km = 10) => request('GET', `/entities/nearby?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}&radius_km=${encodeURIComponent(radius_km)}`),
 };
 

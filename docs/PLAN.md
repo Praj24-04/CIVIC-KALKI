@@ -23,7 +23,8 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 1 | A1 | **Done** 11 Nov: `services/aiClient.js`, 15 s timeout, retry on parse failure only, model from `GEMINI_MODEL` |
 | 1 | A2 | **Done** 11 Nov: the client-built report is labelled "Deterministic summary — not AI output"; real reports are labelled "AI-generated". The no-key fallback now lists only the record's own fields (decision 7). **Tier 1 complete.** |
 | 2 | R1 | **Done** 11 Nov: PDF and Excel built in the browser from the on-screen table, libraries loaded on click |
-| 2 | N1, V1 (2D diagram and table) | Not started |
+| 2 | N1 | **Done** 11 Nov: header bell fed by `GET /entities/notifications`, derived from `AuditLog` and workflow metadata; `NotificationRule.notify_role` overrides recipients; nothing stored |
+| 2 | V1 (2D diagram and table) | Not started |
 | — | T1 (CI) | Not started; after Tier 2 |
 | 3 | V1 3D toggle, V2, everything else | Not started |
 

@@ -25,10 +25,51 @@ async function findOrCreateJurisdiction({ name, type, code, parent_id }) {
   return prisma.jurisdictionMaster.create({ data: { name, type, code, status: 'active', parent_id } });
 }
 
-async function findOrCreateEntity(data) {
+// The workflow steps a record has been through to reach each seeded status.
+const HISTORY = {
+  submitted: [['draft', 'submitted']],
+  coordinator_approved: [['draft', 'submitted'], ['submitted', 'coordinator_approved']],
+  approved: [['draft', 'submitted'], ['submitted', 'coordinator_approved'], ['coordinator_approved', 'approved']],
+};
+
+async function findOrCreateEntity(data, citizen) {
   const existing = await prisma.entity.findFirst({ where: { name: data.name } });
   if (existing) return { entity: existing, created: false };
   const entity = await prisma.entity.create({ data });
+
+  // Give the record the audit trail and approval history it would have if it had
+  // gone through the workflow, so the activity log and the notification feed are
+  // not empty at the start of the demo. Steps not taken by the citizen are
+  // attributed to "Demo seed", not to a real account.
+  const steps = HISTORY[data.status] || [];
+  const start = Date.now() - steps.length * 60 * 60 * 1000;
+  for (const [i, [from, to]] of steps.entries()) {
+    const byCitizen = from === 'draft';
+    const when = new Date(start + i * 60 * 60 * 1000);
+    const reason = 'Demo seed data';
+    await prisma.auditLog.create({
+      data: {
+        entity_id: entity.entity_id,
+        actor_user_id: byCitizen ? citizen.user_id : null,
+        action: 'status_transition',
+        user: byCitizen ? citizen.name : 'Demo seed',
+        old_status: from,
+        new_status: to,
+        datetime: when,
+        reason,
+      },
+    });
+    await prisma.approvalHistory.create({
+      data: {
+        entity_id: entity.entity_id,
+        actor_user_id: byCitizen ? citizen.user_id : null,
+        from_status: from,
+        to_status: to,
+        created_date: when,
+        reason,
+      },
+    });
+  }
   console.log(`  ${data.status.padEnd(20)} #${entity.entity_id} ${entity.name} (${data.area})`);
   return { entity, created: true };
 }
@@ -89,7 +130,7 @@ async function main() {
 
   let createdCount = 0;
   for (const data of records) {
-    const { created } = await findOrCreateEntity(data);
+    const { created } = await findOrCreateEntity(data, citizen);
     if (created) createdCount += 1;
   }
 

@@ -20,6 +20,7 @@ const { generateIntelligenceReport } = require('../services/aiSuggestion');
 const { executeWorkflowTransition, getWorkflowMasterRules, validateWorkflowTransition } = require('../services/workflowEngine');
 const { applyLocationVisibility, applyLocationVisibilityMany } = require('../services/locationVisibility');
 const prisma = require('../db');
+const { getNotificationFeed } = require('../services/notificationFeed');
 const { assertCanModifyEntity, ownerSelectFor, isPublicStatus, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
 
 // Largest page a client may ask for.
@@ -300,7 +301,8 @@ router.post('/', verifyToken, async (req, res, next) => {
       if (check.allowed) initialStatus = requestedStatus;
     }
 
-    const entity = await prisma.entity.create({
+    const entity = await prisma.$transaction(async (tx) => {
+    const created = await tx.entity.create({
       data: {
         entity_type_id: parsedTypeId,
         owner_user_id: ownerUserId,
@@ -318,6 +320,33 @@ router.post('/', verifyToken, async (req, res, next) => {
         },
         jurisdiction: true,
       },
+    });
+
+      // A record that starts beyond "draft" has made a workflow move: record it
+      // like any other transition, so audit, history and notifications see it.
+      if (initialStatus !== 'draft') {
+        await tx.auditLog.create({
+          data: {
+            entity_id: created.entity_id,
+            actor_user_id: ownerUserId,
+            action: 'status_transition',
+            user: req.user.name,
+            old_status: 'draft',
+            new_status: initialStatus,
+            reason: 'Submitted on creation',
+          },
+        });
+        await tx.approvalHistory.create({
+          data: {
+            entity_id: created.entity_id,
+            actor_user_id: ownerUserId,
+            from_status: 'draft',
+            to_status: initialStatus,
+            reason: 'Submitted on creation',
+          },
+        });
+      }
+      return created;
     });
 
     const visibleEntity = applyLocationVisibility(entity, req.user);
@@ -436,6 +465,20 @@ router.get('/', async (req, res, next) => {
 // Declared BEFORE /:id route so 'nearby' is not parsed as an integer id.
 // Query params: ?lat= &lng= &radius_km= (default 10, max 50)
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /entities/notifications
+// The signed-in user's notification feed, derived from the audit trail and
+// the workflow metadata (services/notificationFeed.js). Nothing is stored.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/notifications', verifyToken, async (req, res, next) => {
+  try {
+    const items = await getNotificationFeed(req.user, { limit: req.query.limit });
+    return res.status(200).json({ success: true, data: items });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.get('/nearby', async (req, res, next) => {
   try {
     const { lat, lng, radius_km } = req.query;

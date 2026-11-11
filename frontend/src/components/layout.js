@@ -3,6 +3,7 @@ import { auth as apiAuth } from '../api.js';
 import { navigate } from '../router.js';
 import { getCapabilityPresentation, capabilityIcon } from '../utils/terminology.js';
 import { renderLanguageSelector, attachLanguageSelectorEvents } from './languageSelector.js';
+import { renderNotificationBell, attachNotificationBell } from './notificationBell.js';
 
 export function renderLayout(contentHTML, pageTitle = '', metaTypes = []) {
   const user = getUser();
@@ -163,6 +164,9 @@ export function renderLayout(contentHTML, pageTitle = '', metaTypes = []) {
             <!-- Language Selector -->
             ${renderLanguageSelector({ idPrefix: 'topbar' })}
 
+            <!-- Notifications (derived feed) -->
+            ${renderNotificationBell()}
+
             <!-- User Dropdown Menu -->
             <div class="user-dropdown-container">
               <button class="user-trigger-btn" id="topbar-user-btn" type="button" aria-haspopup="true" aria-expanded="false">
@@ -210,6 +214,7 @@ export function attachLayoutEvents() {
 
   // Attach language selector listeners
   attachLanguageSelectorEvents('topbar');
+  attachNotificationBell();
 
   const newReqBtn = document.getElementById('sidebar-new-request-btn');
   if (newReqBtn) {

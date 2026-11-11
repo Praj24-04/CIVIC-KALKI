@@ -44,7 +44,7 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 4. Sign in as the director. Open #20 and use **Executive Approval (Director)**.
 5. The Movement → Grievance rule fires: a new record "Safe Streets Pune - Grievance" appears, linked from #20.
 6. On #20, **Activity & Accountability Log** shows each step with actor and time.
-7. Notifications to the citizen and approvers *(not built yet — N1)*.
+7. The bell in the header: the coordinator and director see records waiting for their review; after the approvals, the citizen sees each status change and the linked record the rule created. Clicking an entry opens the record.
 
 ## 3. Module Builder
 
