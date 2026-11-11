@@ -180,10 +180,20 @@ async function executeWorkflowTransition({
 
   // Perform atomic update + audit log + approval history
   const { updatedEntity } = await prisma.$transaction(async (tx) => {
-    const updated = await tx.entity.update({
-      where: { entity_id: parsedId },
+    // Compare-and-set: the write only applies if the entity still has the status
+    // the transition was validated against. A concurrent or repeated request
+    // finds nothing to update and gets 409 without writing audit or history rows.
+    const { count } = await tx.entity.updateMany({
+      where: { entity_id: parsedId, status: entity.status },
       data: { status: normalizedToStatus },
     });
+    if (count !== 1) {
+      throw createHttpError(
+        `Entity ${parsedId} is no longer in status "${previousStatus}"; it was changed by another request. Reload and try again.`,
+        409
+      );
+    }
+    const updated = await tx.entity.findUnique({ where: { entity_id: parsedId } });
 
     await tx.auditLog.create({
       data: {

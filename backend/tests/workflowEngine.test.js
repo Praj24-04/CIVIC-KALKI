@@ -272,6 +272,47 @@ describe('Phase 1 — Metadata-Driven Workflow Engine Tests', () => {
     await prisma.entity.delete({ where: { entity_id: entity.entity_id } });
   });
 
+  // ── Test 9 (B1): concurrent approvals are idempotent ──
+  test('Test 9: 20 parallel approvals give exactly 1 success and 1 ApprovalHistory row', async () => {
+    const entity = await prisma.entity.create({
+      data: {
+        entity_type_id: movementEntityType.entity_type_id,
+        owner_user_id: citizenUser.user_id,
+        name: 'Test Movement Concurrent Approval',
+        area: 'Sector 5',
+        status: 'submitted',
+      },
+    });
+
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        request(app)
+          .post(`/entities/${entity.entity_id}/transition`)
+          .set(coordinatorAreaHeaders)
+          .send({ to_status: 'coordinator_approved' })
+      )
+    );
+
+    const statuses = responses.map((r) => r.status);
+    expect(statuses.filter((s) => s === 200)).toHaveLength(1);
+    // Losers either lost the compare-and-set (409) or validated after the winner committed (400).
+    expect(statuses.filter((s) => s === 409 || s === 400)).toHaveLength(19);
+    expect(statuses.filter((s) => s === 409).length).toBeGreaterThan(0);
+
+    const history = await prisma.approvalHistory.findMany({ where: { entity_id: entity.entity_id } });
+    expect(history).toHaveLength(1);
+    expect(history[0].from_status).toBe('submitted');
+    expect(history[0].to_status).toBe('coordinator_approved');
+
+    const audits = await prisma.auditLog.findMany({
+      where: { entity_id: entity.entity_id, action: 'status_transition' },
+    });
+    expect(audits).toHaveLength(1);
+
+    const after = await prisma.entity.findUnique({ where: { entity_id: entity.entity_id } });
+    expect(after.status).toBe('coordinator_approved');
+  });
+
   // ── Test 8: GET /entities/:id/workflow API endpoint ──
   test('Test 8: GET /entities/:id/workflow returns metadata transitions', async () => {
     const entity = await prisma.entity.create({
