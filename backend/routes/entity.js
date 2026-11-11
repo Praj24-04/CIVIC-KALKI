@@ -1077,74 +1077,75 @@ router.get('/:id/lineage', verifyToken, async (req, res, next) => {
       include: { targetEntityType: { select: { entity_type_id: true, name: true } } },
     });
 
-    // 2. Child entities created BY this entity via Rule Engine
-    const childAuditLogs = await prisma.auditLog.findMany({
+    // 2. Child entities created BY this entity via the Rule Engine.
+    // The link is the source columns the engine writes (Entity.source_entity_id,
+    // Entity.source_rule_id), not text matching.
+    const linkedChildren = await prisma.entity.findMany({
+      where: { source_entity_id: entityId },
+      include: {
+        entityType: { select: { entity_type_id: true, name: true } },
+        auditLogs: { where: { action: 'auto_created' }, orderBy: { datetime: 'asc' }, take: 1 },
+      },
+      orderBy: { entity_id: 'asc' },
+    });
+
+    const children = linkedChildren.map((child) => ({
+      entity_id: child.entity_id,
+      name: child.name,
+      entity_type_id: child.entity_type_id,
+      type_name: child.entityType?.name || 'Unknown',
+      status: child.status,
+      created_at: child.auditLogs[0]?.datetime || null,
+      reason: child.auditLogs[0]?.reason || `Created by rule ${child.source_rule_id ?? 'unknown'}`,
+      source_rule_id: child.source_rule_id,
+    }));
+
+    // Records auto-created before the source columns existed carry the link only
+    // in their audit text. Match it exactly: "source entity #5 (" cannot match #50.
+    const legacyLogs = await prisma.auditLog.findMany({
       where: {
-        reason: { contains: `source entity #${entityId}` },
         action: 'auto_created',
+        reason: { contains: `source entity #${entityId} (` },
+        entity: { source_entity_id: null },
       },
       include: {
-        entity: {
-          include: { entityType: { select: { entity_type_id: true, name: true } } },
-        },
+        entity: { include: { entityType: { select: { entity_type_id: true, name: true } } } },
       },
       orderBy: { datetime: 'asc' },
     });
+    for (const log of legacyLogs) {
+      if (log.entity_id === entityId || children.some((c) => c.entity_id === log.entity_id)) continue;
+      children.push({
+        entity_id: log.entity.entity_id,
+        name: log.entity.name,
+        entity_type_id: log.entity.entity_type_id,
+        type_name: log.entity.entityType?.name || 'Unknown',
+        status: log.entity.status,
+        created_at: log.datetime,
+        reason: log.reason,
+        source_rule_id: null,
+      });
+    }
 
-    // 3. Parent entity if this entity was auto-created from a source entity
-    const selfAuditLog = await prisma.auditLog.findFirst({
-      where: {
-        entity_id: entityId,
-        action: 'auto_created',
-      },
-    });
-
+    // 3. Parent entity, if this entity was auto-created from a source entity
     let parentEntity = null;
-    if (selfAuditLog && selfAuditLog.reason) {
-      const match = selfAuditLog.reason.match(/source entity #(\d+)/);
-      if (match && match[1]) {
-        const parentId = Number(match[1]);
+    if (entity.source_entity_id) {
+      parentEntity = await prisma.entity.findUnique({
+        where: { entity_id: entity.source_entity_id },
+        include: { entityType: { select: { entity_type_id: true, name: true } } },
+      });
+    } else {
+      const selfAuditLog = await prisma.auditLog.findFirst({
+        where: { entity_id: entityId, action: 'auto_created' },
+      });
+      const match = selfAuditLog?.reason?.match(/source entity #(\d+) \(/);
+      if (match) {
         parentEntity = await prisma.entity.findUnique({
-          where: { entity_id: parentId },
+          where: { entity_id: Number(match[1]) },
           include: { entityType: { select: { entity_type_id: true, name: true } } },
         });
       }
     }
-
-    // 4. ParameterValue references (e.g. linked_movement_id)
-    const linkedParams = await prisma.parameterValue.findMany({
-      where: { value: String(entityId) },
-      include: {
-        entity: {
-          include: { entityType: { select: { entity_type_id: true, name: true } } },
-        },
-        parameterMaster: { select: { parameter_id: true, label: true, field_key: true } },
-      },
-    });
-
-    const children = childAuditLogs.map((log) => ({
-      entity_id: log.entity.entity_id,
-      name: log.entity.name,
-      entity_type_id: log.entity.entity_type_id,
-      type_name: log.entity.entityType?.name || 'Unknown',
-      status: log.entity.status,
-      created_at: log.datetime,
-      reason: log.reason,
-    }));
-
-    linkedParams.forEach((lp) => {
-      if (lp.entity_id !== entityId && !children.some((c) => c.entity_id === lp.entity_id)) {
-        children.push({
-          entity_id: lp.entity.entity_id,
-          name: lp.entity.name,
-          entity_type_id: lp.entity.entity_type_id,
-          type_name: lp.entity.entityType?.name || 'Unknown',
-          status: lp.entity.status,
-          created_at: lp.created_date,
-          reason: `Linked via parameter ${lp.parameterMaster?.label || lp.parameterMaster?.field_key}`,
-        });
-      }
-    });
 
     // Apply location visibility to current and parent entities
     const visibleCurrent = applyLocationVisibility(entity, req.user);

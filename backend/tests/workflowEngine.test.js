@@ -464,6 +464,46 @@ describe('Phase 1 — Metadata-Driven Workflow Engine Tests', () => {
     expect(await prisma.entity.count({ where: { source_entity_id: entity.entity_id } })).toBeGreaterThan(0);
   });
 
+  // ── Test 13 (B7): lineage comes from the source link, not from text or values ──
+  test('Test 13: lineage lists exactly the entities created from this one', async () => {
+    const mk = (name, status = 'coordinator_approved') => prisma.entity.create({
+      data: { entity_type_id: movementEntityType.entity_type_id, owner_user_id: citizenUser.user_id, name, area: 'Sector 5', status },
+    });
+    const parent = await mk('Test Movement Lineage Parent');
+    const approve = await request(app).post(`/entities/${parent.entity_id}/transition`).set(directorHeaders).send({ to_status: 'approved' });
+    expect(approve.status).toBe(200);
+    const realChildren = await prisma.entity.findMany({ where: { source_entity_id: parent.entity_id } });
+    expect(realChildren.length).toBeGreaterThan(0);
+
+    // Decoys the old string matching would have picked up:
+    // an unrelated entity holding the parent's id as a field value…
+    const decoy = await mk('Test Movement Lineage Decoy', 'draft');
+    const anyParam = await prisma.parameterMaster.findFirst();
+    await prisma.parameterValue.create({
+      data: { entity_id: decoy.entity_id, parameter_id: anyParam.parameter_id, value: String(parent.entity_id) },
+    });
+    // …and an audit row whose text names an id that merely starts with the parent's id.
+    const prefixDecoy = await mk('Test Movement Lineage Prefix Decoy', 'draft');
+    await prisma.auditLog.create({
+      data: {
+        entity_id: prefixDecoy.entity_id,
+        action: 'auto_created',
+        user: 'system/rule-engine',
+        reason: `Rule 1 fired: | source entity #${parent.entity_id}7 (Some Other Entity) | event "approved"`,
+      },
+    });
+
+    const res = await request(app).get(`/entities/${parent.entity_id}/lineage`).set(directorHeaders);
+    expect(res.status).toBe(200);
+    expect(res.body.data.children.map((c) => c.entity_id).sort()).toEqual(realChildren.map((c) => c.entity_id).sort());
+    expect(res.body.data.parent).toBeNull();
+
+    const childRes = await request(app).get(`/entities/${realChildren[0].entity_id}/lineage`).set(directorHeaders);
+    expect(childRes.body.data.parent.entity_id).toBe(parent.entity_id);
+
+    await prisma.parameterValue.deleteMany({ where: { entity_id: decoy.entity_id } });
+  });
+
   // ── Test 8: GET /entities/:id/workflow API endpoint ──
   test('Test 8: GET /entities/:id/workflow returns metadata transitions', async () => {
     const entity = await prisma.entity.create({
