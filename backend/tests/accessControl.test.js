@@ -225,7 +225,7 @@ describe('S1 and S2 — access control', () => {
       for (const query of ['', '?status=draft', '?status=submitted', `?owner_user_id=${owner.user.user_id}`]) {
         const res = await request(app).get(`/entities${query}`);
         expect(res.status).toBe(200);
-        expect(res.body.data.every((e) => e.status === 'approved')).toBe(true);
+        expect(res.body.data.every((e) => String(e.status).toLowerCase() === 'approved')).toBe(true);
         expect(emailKeys(res.body)).toEqual([]);
       }
       const mine = await request(app).get(`/entities?owner_user_id=${owner.user.user_id}`);
@@ -238,6 +238,18 @@ describe('S1 and S2 — access control', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.owner.name).toBeDefined();
       expect(emailKeys(res.body)).toEqual([]);
+    });
+
+    test('GET /entities/:id for a record that is not approved answers 404, like a missing one', async () => {
+      const draft = await request(app).get(`/entities/${ownedEntity.entity_id}`);
+      const missing = await request(app).get('/entities/2147483000');
+      expect(draft.status).toBe(404);
+      expect(missing.status).toBe(404);
+      expect(draft.body.data).toBeUndefined();
+      expect(JSON.stringify(draft.body)).not.toContain('Access Control Owned Entity');
+
+      const asOwner = await request(app).get(`/entities/${ownedEntity.entity_id}`).set(owner.headers);
+      expect(asOwner.status).toBe(200);
     });
 
     test('audit and lineage require login', async () => {

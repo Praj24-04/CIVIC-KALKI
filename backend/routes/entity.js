@@ -20,7 +20,7 @@ const { generateIntelligenceReport } = require('../services/aiSuggestion');
 const { executeWorkflowTransition, getWorkflowMasterRules, validateWorkflowTransition } = require('../services/workflowEngine');
 const { applyLocationVisibility, applyLocationVisibilityMany } = require('../services/locationVisibility');
 const prisma = require('../db');
-const { assertCanModifyEntity, ownerSelectFor, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
+const { assertCanModifyEntity, ownerSelectFor, isPublicStatus, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
 
 // Largest page a client may ask for.
 const MAX_PAGE_SIZE = 100;
@@ -370,7 +370,7 @@ router.get('/', async (req, res, next) => {
 
     // Anonymous visitors see approved records only, whatever status they ask for
     if (!req.user) {
-      where.status = PUBLIC_STATUS;
+      where.status = { equals: PUBLIC_STATUS, mode: 'insensitive' };
     }
 
     // Citizens can strictly only view entities initiated by themselves
@@ -560,6 +560,11 @@ router.get('/:id', async (req, res, next) => {
     }
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Civic Campaign content is available only through the Civic Buzz endpoints.', 404));
+    }
+    // Anonymous visitors can read approved records only. Anything else answers
+    // exactly like a record that does not exist.
+    if (!req.user && !isPublicStatus(entity.status)) {
+      return next(createError(`Entity with id ${entityId} was not found.`, 404));
     }
 
     // The owner's email goes only to staff and to the owner themselves.

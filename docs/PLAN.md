@@ -18,10 +18,10 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 1 | DR1 | **Done** 11 Nov (see "DR1 notes") |
 | 1 | B1 | **Done** 11 Nov: compare-and-set on status inside the transaction, 409 for the loser |
 | 1 | B2 | **Done** 11 Nov: rules fire inside the approval transaction; children carry `source_entity_id` and `source_rule_id` (unique together) |
-| 1 | S1 | **Done** 11 Nov, except `POST /translate` (see "S1 notes"; needs a decision) |
-| 1 | S2 | **Done** 11 Nov, except anonymous `GET /entities/:id` on a record that is not approved (see "S2 notes"; needs a decision) |
+| 1 | S1 | **Done** 11 Nov |
+| 1 | S2 | **Done** 11 Nov |
 | 1 | A1 | **Done** 11 Nov: `services/aiClient.js`, 15 s timeout, retry on parse failure only, model from `GEMINI_MODEL` |
-| 1 | A2 | **Done** 11 Nov: the client-built report is labelled "Deterministic summary — not AI output"; real reports are labelled "AI-generated". **Tier 1 complete.** Open: the template still fills in fixed "root cause", "risk" and "recommendation" text; removing those sections is proposed |
+| 1 | A2 | **Done** 11 Nov: the client-built report is labelled "Deterministic summary — not AI output"; real reports are labelled "AI-generated". The no-key fallback now lists only the record's own fields (decision 7). **Tier 1 complete.** |
 | 2 | R1 | **Done** 11 Nov: PDF and Excel built in the browser from the on-screen table, libraries loaded on click |
 | 2 | N1, V1 (2D diagram and table) | Not started |
 | — | T1 (CI) | Not started; after Tier 2 |
@@ -64,13 +64,13 @@ Recommended order: DR1 first (it gives every later slice a working local test lo
 **S1 notes (done 11 Nov 2026).** Metadata mutations (entity types, rules, forms, sections, subsections, parameters) need admin or director. Entity create, update and delete, values and file upload and delete need a signed-in caller; values and files also need the owner or a staff role, and an entity with no owner (for example one created by a rule) can be changed by staff only. No existing test relied on anonymous writes.
 
 - Client `status` on create: the manual form sends `status: 'submitted'`, so ignoring it outright would leave every form submission as a draft. The server now starts every entity as `draft` and honours a requested status only if the module's workflow lets the caller move their own draft there. `approved` and the like are ignored.
-- **Open: `POST /translate` is still anonymous.** The language selector is on the home, login and signup pages, so requiring login would silently switch off translation before sign-in. It changes no data. Proposed: leave it anonymous. Decision needed.
-- **Open: view and click counters** (`POST /buzz/:id/event`, `POST /meme/campaigns/:id/event`) are anonymous by design, deduplicated, and covered by existing tests. Proposed: keep as the one exception to "every write requires login". Decision needed.
+- **`POST /translate` stays anonymous (decision 4).** The language selector is on the home, login and signup pages, so requiring login would silently switch off translation before sign-in. It changes no data.
+- **View and click counters stay anonymous (decision 5):** (`POST /buzz/:id/event`, `POST /meme/campaigns/:id/event`) are anonymous by design, deduplicated, and covered by existing tests. They are the one exception to "every write requires login".
 - For S2: uploaded files are readable by anyone through `GET /files/entity/:id`, `GET /files/:fileId` and the static `/uploads` path.
 
 **S2 notes (done 11 Nov 2026).** Anonymous `GET /entities` returns approved records only, whatever filter is sent. Owner email goes only to staff and to the owner. Audit and lineage need login. Anonymous reads of values and files work only for approved records. `limit` is capped at 100. A test walks the public read endpoints and fails on any `email` key.
 
-- **Open: anonymous `GET /entities/:id` on a draft or submitted record still returns 200** (name, area, status and owner name; no location, no email). The existing test `locationAndAuth.test.js` "full location visibility lifecycle" asserts exactly that 200, so returning 404 means changing an existing test's expectation. Proposed: return 404 and update the two assertions. Decision needed.
+- Anonymous `GET /entities/:id` on a record that is not approved returns 404, the same answer as a missing record (decision 6). The two assertions in `locationAndAuth.test.js` that expected 200 were updated.
 - Not changed: files under the static `/uploads` path are readable by anyone who has the file name (names carry a random suffix). Any signed-in citizen can still read any other citizen's record by id; the plan only scopes anonymous reads.
 
 **Database and venue network.** If the database stays on Supabase, every request depends on venue Wi-Fi, and `backend/db.js` waits up to 30 s before failing. Smallest fallback: a `docker-compose.yml` with Postgres and a `backend/.env.local.example` whose `DATABASE_URL` points at it; the same migrations and seed run unchanged. Gemini, map tiles and translation still need a network, so the demo script covers them: AI-down path above, and the map shown only if tiles load.
@@ -178,3 +178,7 @@ Added 11 Nov 2026 so that future sessions inherit it. The repository was checked
 1. **B2 schema:** add two nullable columns to `Entity` (`source_entity_id`, `source_rule_id`, unique together). No new table. APPROVED.
 2. **Anonymous access:** every write requires login; anonymous visitors can read only public approved items, without emails. Tests that relied on anonymous writes are updated to log in first. APPROVED.
 3. **Demo database:** local Postgres is the primary for the demo; Supabase is the backup; both use the same migrations and seed. APPROVED.
+4. **Translate:** `POST /translate` stays anonymous, because the language selector runs on the home, login and signup pages. APPROVED 11 Nov.
+5. **Anonymous counters:** the Buzz and Meme view and click counters stay anonymous; they are the one exception to decision 2. APPROVED 11 Nov.
+6. **Anonymous detail read:** `GET /entities/:id` returns 404 to anonymous visitors unless the record is approved. APPROVED 11 Nov.
+7. **Deterministic report fallback:** with no AI key the director report lists only the record's own fields; the fixed "root cause", "risk" and "recommendation" text is removed. APPROVED 11 Nov.

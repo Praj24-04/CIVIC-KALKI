@@ -627,8 +627,7 @@ async function handleGenerateAIReport(entity, values = []) {
       // No AI was involved: say so in the toast, the card header and the notice.
       toastError('AI is not configured. Showing a deterministic summary of the case fields instead.');
       setReportSourceLabel('deterministic');
-      const previewReport = buildCivicIntelligencePreview(entity, values);
-      reportBody.innerHTML = renderReportSections(previewReport);
+      reportBody.innerHTML = renderDeterministicSummary(entity, values);
     } else {
       toastError(err.message || 'Could not generate AI report');
       reportBody.innerHTML = `<div class="alert alert-error">AI Analysis failed: ${escapeHtml(err.message)}</div>`;
@@ -656,48 +655,50 @@ function setReportSourceLabel(source) {
 }
 
 /**
- * Deterministic fallback shown when the AI is not configured. It is a fixed
- * template filled from the case's own fields. It is NOT AI output and is
- * labelled as such by setReportSourceLabel('deterministic') and its notice.
+ * Deterministic fallback shown when the AI is not configured: the record's own
+ * facts and submitted field values, listed as they are. It contains no
+ * analysis, no risks and no recommendations, and it is NOT AI output; the card
+ * is labelled by setReportSourceLabel('deterministic').
  */
-function buildCivicIntelligencePreview(entity, values = []) {
-  const paramMap = {};
-  if (Array.isArray(values)) {
-    for (const v of values) {
-      const key = v.parameterMaster?.field_key || `param_${v.parameter_id}`;
-      paramMap[key] = v.value;
-    }
-  }
+function renderDeterministicSummary(entity, values = []) {
+  const facts = [
+    ['Record', `#${entity.entity_id} ${entity.name || ''}`],
+    ['Type', entity.entityType?.name],
+    ['Status', entity.status],
+    ['Area', entity.area],
+    ['Location', entity.location],
+    ['Submitted by', entity.owner?.name],
+  ].filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== '');
 
-  const problemNeed = paramMap['problem_need'] || paramMap['description'] || entity.name || 'Civic improvement proposal';
-  const proposedSolution = paramMap['proposed_solution'] || 'Community coordination and departmental municipal intervention';
-  const urgency = paramMap['urgency'] || 'Normal';
-  const areaName = entity.area || 'Ward / Area Jurisdiction';
+  const fields = (Array.isArray(values) ? values : [])
+    .filter((v) => v && v.value !== null && v.value !== undefined && String(v.value).trim() !== '')
+    .map((v) => [v.parameterMaster?.label || v.parameterMaster?.field_key || `Field ${v.parameter_id}`, v.value]);
 
-  return {
-    problem_summary: `The initiative "${entity.name}" in ${areaName} highlights a local priority: "${problemNeed}". The citizen proposes "${proposedSolution}".`,
-    root_cause_analysis: [
-      `Localized civic and infrastructure upkeep requirement in ${areaName}.`,
-      `Gap between standard municipal routine maintenance and citizen-level expectations.`,
-      `Absence of structured community-departmental participatory coordination.`
-    ],
-    stakeholder_analysis: [
-      { group: `Residents & Citizens of ${areaName}`, interest: "Timely resolution, cleaner living environment, and reliable public amenities." },
-      { group: "Area Coordinator & Field Inspectors", interest: "On-site verification of scope, resource estimation, and jurisdiction validation." },
-      { group: "Competent Department (Works / Sanitation)", interest: "Feasibility check, alignment with ward budget, and task execution." }
-    ],
-    risk_register: [
-      { risk: `Delays in site inspection may exacerbate citizen grievances in ${areaName}`, severity: urgency === 'Urgent' || urgency === 'Critical' ? 'High' : 'Medium' },
-      { risk: "Potential overlap with scheduled municipal ward maintenance works", severity: "Low" },
-      { risk: "Incomplete initial citizen documentation requiring field verification", severity: "Low" }
-    ],
-    recommendation: [
-      `Area Coordinator should verify the physical site in ${areaName} and confirm exact requirements.`,
-      "Coordinate with the relevant zonal engineering / sanitation unit to assess resource requirements.",
-      "If verified, transition case status to 'coordinator_approved' to forward for Executive Director sanction."
-    ],
-    notice: "Deterministic summary, not AI output. No AI key is configured, so this text is a fixed template filled in from this case's own fields. It contains no analysis. Set GEMINI_API_KEY in backend/.env for an AI-generated report."
-  };
+  const rowsHtml = (rows) => rows.map(([label, value]) => `
+        <tr>
+          <th scope="row" style="text-align:left; width:34%; font-weight:600; color:var(--text-secondary); padding:6px 10px; vertical-align:top;">${escapeHtml(String(label))}</th>
+          <td style="padding:6px 10px;">${escapeHtml(String(value))}</td>
+        </tr>`).join('');
+
+  return `
+    <div style="font-size:13px; color:var(--text-primary); line-height:1.5;">
+      <div style="margin-bottom:12px; padding:10px 12px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; font-size:12px; color:#1e40af;">
+        <strong>Deterministic summary, not AI output.</strong>
+        No AI key is configured, so this lists the record's own fields exactly as submitted.
+        It contains no analysis, risks or recommendations.
+        Set GEMINI_API_KEY in backend/.env for an AI-generated report.
+      </div>
+      <div class="table-container">
+        <table>
+          <tbody>${rowsHtml(facts)}</tbody>
+        </table>
+      </div>
+      <h4 style="margin:16px 0 8px; font-size:13px;">Submitted fields (${fields.length})</h4>
+      ${fields.length
+        ? `<div class="table-container"><table><tbody>${rowsHtml(fields)}</tbody></table></div>`
+        : '<div class="text-muted">No field values were submitted with this record.</div>'}
+    </div>
+  `;
 }
 
 function renderReportSections(report) {

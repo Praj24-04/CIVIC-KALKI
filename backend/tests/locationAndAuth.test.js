@@ -372,18 +372,15 @@ describe('Coordinate Validation on POST /entities', () => {
     const entityId = createRes.body.data.entity_id;
     expect(entityId).toBeDefined();
 
-    // 3. Anonymous GET has no latitude/longitude/location
+    // 3. Anonymous GET of a draft: not readable at all (anonymous visitors see approved records only)
     const anonDraftRes = await request(app)
       .get(`/entities/${entityId}`)
       .set('X-Requested-With', 'ck-web');
 
-    expect(anonDraftRes.statusCode).toBe(200);
-    expect(anonDraftRes.body.data.latitude).toBeFalsy();
-    expect(anonDraftRes.body.data.longitude).toBeFalsy();
-    expect(anonDraftRes.body.data.location).toBeFalsy();
-    expect(anonDraftRes.body.data).not.toHaveProperty('latitude');
-    expect(anonDraftRes.body.data).not.toHaveProperty('longitude');
-    expect(anonDraftRes.body.data).not.toHaveProperty('location');
+    expect(anonDraftRes.statusCode).toBe(404);
+    expect(anonDraftRes.body.data).toBeUndefined();
+    expect(JSON.stringify(anonDraftRes.body)).not.toContain('Central Plaza');
+    expect(JSON.stringify(anonDraftRes.body)).not.toContain('28.6139');
 
     // 4. Owner sees coordinates and location
     const ownerDraftRes = await request(app)
@@ -449,18 +446,15 @@ describe('Coordinate Validation on POST /entities', () => {
       data: { status: 'draft' },
     });
 
-    // 10. Hidden again from anonymous
+    // 10. No longer approved: not readable by anonymous visitors again
     const anonRevokedRes = await request(app)
       .get(`/entities/${entityId}`)
       .set('X-Requested-With', 'ck-web');
 
-    expect(anonRevokedRes.statusCode).toBe(200);
-    expect(anonRevokedRes.body.data.latitude).toBeFalsy();
-    expect(anonRevokedRes.body.data.longitude).toBeFalsy();
-    expect(anonRevokedRes.body.data.location).toBeFalsy();
-    expect(anonRevokedRes.body.data).not.toHaveProperty('latitude');
-    expect(anonRevokedRes.body.data).not.toHaveProperty('longitude');
-    expect(anonRevokedRes.body.data).not.toHaveProperty('location');
+    expect(anonRevokedRes.statusCode).toBe(404);
+    expect(anonRevokedRes.body.data).toBeUndefined();
+    expect(JSON.stringify(anonRevokedRes.body)).not.toContain('Central Plaza');
+    expect(JSON.stringify(anonRevokedRes.body)).not.toContain('28.6139');
 
     // 11. Hidden again from /entities/nearby
     const nearbyRevokedRes = await request(app)
