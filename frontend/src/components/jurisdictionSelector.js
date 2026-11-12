@@ -35,7 +35,7 @@ function escapeHtml(str) {
 function highlightMatch(text, query) {
   if (!query) return escapeHtml(text);
   const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return escapeHtml(text).replace(regex, '<strong style="color:var(--primary,#ff5a36);">$1</strong>');
+  return escapeHtml(text).replace(regex, '<strong style="color:var(--primary,var(--primary));">$1</strong>');
 }
 
 export class JurisdictionSelector {

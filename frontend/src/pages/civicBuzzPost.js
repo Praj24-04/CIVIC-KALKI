@@ -66,7 +66,7 @@ export async function renderCivicBuzzPost(params) {
         <div style="border-radius:16px; overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,0.12); position:relative; background:#0f172a; aspect-ratio:1/1; display:flex; align-items:center; justify-content:center;">
           <img src="${escapeHtml(post.image_url)}" alt="${escapeHtml(post.caption)}" style="width:100%; height:100%; object-fit:cover;" onerror="this.src='${DEFAULT_CIVIC_BG}'" />
           <div class="ck-card-watermark">
-            <span class="ck-wm-flame">${BI.flame(14, '#ff5a36')}</span>
+            <span class="ck-wm-flame">${BI.flame(14, 'var(--primary)')}</span>
             <span class="ck-wm-brand">CIVIC-KALKI</span>
           </div>
         </div>
@@ -94,7 +94,7 @@ export async function renderCivicBuzzPost(params) {
       <div class="ck-buzz-post-page-wrap">
         <!-- Top Back Navigation -->
         <div style="margin-bottom: 20px; display:flex; justify-content:space-between; align-items:center;">
-          <a href="/buzz" class="ck-buzz-back-link" style="display:inline-flex; align-items:center; gap:6px; font-weight:700; color:#ff5a36; text-decoration:none;">
+          <a href="/buzz" class="ck-buzz-back-link" style="display:inline-flex; align-items:center; gap:6px; font-weight:700; color:var(--primary); text-decoration:none;">
             ← Back to Civic Buzz Gallery
           </a>
           <span style="font-size:0.8rem; color:#64748b;">Post #${post.id}</span>
@@ -136,7 +136,7 @@ export async function renderCivicBuzzPost(params) {
 
               <!-- Linked Entity Details Box -->
               <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:12px 16px; margin-bottom:16px;">
-                <div style="font-size:0.7rem; font-weight:800; color:#ff5a36; text-transform:uppercase; letter-spacing:0.06em;">
+                <div style="font-size:0.7rem; font-weight:800; color:var(--primary); text-transform:uppercase; letter-spacing:0.06em;">
                   Linked ${escapeHtml(post.linked_type)} #${escapeHtml(post.linked_id)}
                 </div>
                 <div style="font-size:0.95rem; font-weight:700; color:#1e293b; margin-top:2px;">
@@ -221,7 +221,7 @@ function renderNotFound(message) {
   const app = document.getElementById('app');
   app.innerHTML = renderLayout(`
     <div class="ck-buzz-post-page-wrap" style="text-align:center; padding:60px 20px;">
-      <div style="font-size:3rem; margin-bottom:12px; display:flex; justify-content:center; color:#ff5a36;">${BI.flame(52, '#ff5a36')}</div>
+      <div style="font-size:3rem; margin-bottom:12px; display:flex; justify-content:center; color:var(--primary);">${BI.flame(52, 'var(--primary)')}</div>
       <h2 style="font-size:1.5rem; font-weight:800; color:#0f172a; margin-bottom:8px;">Civic Buzz Post Not Found</h2>
       <p style="color:#64748b; max-width:440px; margin:0 auto 20px;">${escapeHtml(message)}</p>
       <a href="/buzz" class="btn btn-primary" style="border-radius:999px; font-weight:700;">Explore Civic Buzz Gallery</a>

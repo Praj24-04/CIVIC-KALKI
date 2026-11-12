@@ -37,7 +37,7 @@ export function renderAgentChatBar(idPrefix = 'agent') {
       <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
         <div style="
           width:32px; height:32px; border-radius:50%;
-          background:linear-gradient(135deg,#ff5a36,#e44);
+          background:linear-gradient(135deg,var(--primary),#e44);
           display:flex; align-items:center; justify-content:center; flex-shrink:0;
         ">
           <svg width="16" height="16" fill="none" stroke="white" viewBox="0 0 24 24" aria-hidden="true">
@@ -81,7 +81,7 @@ export function renderAgentChatBar(idPrefix = 'agent') {
             padding: 12px 20px;
             border-radius: 999px;
             border: none;
-            background: linear-gradient(135deg, #ff5a36, #e03c22);
+            background: linear-gradient(135deg, var(--primary), #e03c22);
             color: white;
             font-weight: 700;
             font-size: 0.875rem;
@@ -145,7 +145,7 @@ export function attachAgentChatBarEvents(idPrefix = 'agent') {
 
   // Style the input focus state
   input.addEventListener('focus', () => {
-    input.style.borderColor = 'rgba(255,90,54,0.7)';
+    input.style.borderColor = 'rgba(var(--primary-rgb),0.7)';
     input.style.background = 'rgba(255,255,255,0.10)';
   });
   input.addEventListener('blur', () => {
@@ -169,7 +169,7 @@ export function attachAgentChatBarEvents(idPrefix = 'agent') {
   function handleSend() {
     const message = input.value.trim();
     if (!message) {
-      input.style.borderColor = 'rgba(255,90,54,0.9)';
+      input.style.borderColor = 'rgba(var(--primary-rgb),0.9)';
       setTimeout(() => { input.style.borderColor = 'rgba(255,255,255,0.15)'; }, 1200);
       return;
     }

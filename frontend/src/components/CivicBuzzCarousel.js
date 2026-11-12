@@ -36,7 +36,7 @@ export function renderCivicBuzzCardHtml() {
         <div>
           <div class="ck-buzz-brand-title">
             <span>CIVIC BUZZ</span>
-            <span class="ck-buzz-flame" style="display:inline-flex; align-items:center;">${BI.flame(15, '#ff5a36')}</span>
+            <span class="ck-buzz-flame" style="display:inline-flex; align-items:center;">${BI.flame(15, 'var(--primary)')}</span>
           </div>
           <div class="ck-buzz-brand-sub">Youth-powered civic conversations</div>
         </div>
@@ -193,7 +193,7 @@ export async function initCivicBuzzCarousel() {
                 <span>+</span> Follow
               </button>
             </div>
-            <a href="${post.linked_id ? `/entities/${post.linked_id}` : `/buzz/${post.id}`}" class="ck-buzz-view-issue-link" data-action="view-issue" style="font-size:0.85rem; color:#ff5a36; font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">
+            <a href="${post.linked_id ? `/entities/${post.linked_id}` : `/buzz/${post.id}`}" class="ck-buzz-view-issue-link" data-action="view-issue" style="font-size:0.85rem; color:var(--primary); font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">
               View issue →
             </a>
           </div>
@@ -335,7 +335,7 @@ export async function initCivicBuzzCarousel() {
         .then(() => {
           toastSuccess('Upvoted civic buzz!');
           upvoteBtn.innerHTML = '<span>✓</span> Upvoted';
-          upvoteBtn.style.color = '#ff5a36';
+          upvoteBtn.style.color = 'var(--primary)';
         })
         .catch(() => toast('You already supported this post.'));
       return;

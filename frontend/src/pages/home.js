@@ -40,8 +40,8 @@ const SVG = {
 
   // Civic buzz memes & metrics
   flame: `<svg class="ck-icon ck-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>`,
-  potholeMeme: `<svg class="ck-meme-svg" viewBox="0 0 64 64" fill="none"><ellipse cx="32" cy="40" rx="28" ry="15" fill="#2d2520"/><ellipse cx="32" cy="40" rx="23" ry="11" fill="#181412"/><ellipse cx="32" cy="39" rx="17" ry="7" fill="#3b82f6" opacity="0.7"/><path d="M14 30l5-12h4l-3 12h-6z" fill="#ff5a36"/><path d="M46 30l-5-12h-4l3 12h6z" fill="#ff5a36"/><path d="M21 20h22" stroke="#ffbd2e" stroke-width="3" stroke-linecap="round"/></svg>`,
-  lightMeme: `<svg class="ck-meme-svg" viewBox="0 0 64 64" fill="none"><path d="M24 18a11 11 0 0 1 16 0c2 2 3 5 3 7 0 5-4 8-4 11h-14c0-3-4-6-4-11 0-2 1-5 3-7z" fill="#ffbd2e" opacity="0.95"/><rect x="25" y="37" width="14" height="4" rx="2" fill="#d1c5b8"/><rect x="27" y="43" width="10" height="3" rx="1.5" fill="#8c8275"/><path d="M45 13a7.5 7.5 0 1 0 8 8 9.5 9.5 0 0 1-8-8z" fill="#ff7d5c"/><line x1="32" y1="5" x2="32" y2="9" stroke="#ffbd2e" stroke-width="2.5" stroke-linecap="round"/><line x1="15" y1="11" x2="18" y2="14" stroke="#ffbd2e" stroke-width="2.5" stroke-linecap="round"/><line x1="9" y1="24" x2="13" y2="24" stroke="#ffbd2e" stroke-width="2.5" stroke-linecap="round"/></svg>`,
+  potholeMeme: `<svg class="ck-meme-svg" viewBox="0 0 64 64" fill="none"><ellipse cx="32" cy="40" rx="28" ry="15" fill="#2d2520"/><ellipse cx="32" cy="40" rx="23" ry="11" fill="#181412"/><ellipse cx="32" cy="39" rx="17" ry="7" fill="#3b82f6" opacity="0.7"/><path d="M14 30l5-12h4l-3 12h-6z" fill="var(--primary)"/><path d="M46 30l-5-12h-4l3 12h6z" fill="var(--primary)"/><path d="M21 20h22" stroke="#ffbd2e" stroke-width="3" stroke-linecap="round"/></svg>`,
+  lightMeme: `<svg class="ck-meme-svg" viewBox="0 0 64 64" fill="none"><path d="M24 18a11 11 0 0 1 16 0c2 2 3 5 3 7 0 5-4 8-4 11h-14c0-3-4-6-4-11 0-2 1-5 3-7z" fill="#ffbd2e" opacity="0.95"/><rect x="25" y="37" width="14" height="4" rx="2" fill="#d1c5b8"/><rect x="27" y="43" width="10" height="3" rx="1.5" fill="#8c8275"/><path d="M45 13a7.5 7.5 0 1 0 8 8 9.5 9.5 0 0 1-8-8z" fill="var(--primary-500)"/><line x1="32" y1="5" x2="32" y2="9" stroke="#ffbd2e" stroke-width="2.5" stroke-linecap="round"/><line x1="15" y1="11" x2="18" y2="14" stroke="#ffbd2e" stroke-width="2.5" stroke-linecap="round"/><line x1="9" y1="24" x2="13" y2="24" stroke="#ffbd2e" stroke-width="2.5" stroke-linecap="round"/></svg>`,
   truckMeme: `<svg class="ck-meme-svg" viewBox="0 0 64 64" fill="none"><rect x="6" y="24" width="28" height="18" rx="3" fill="#2f855a"/><path d="M34 27h14l6 7v8H34V27z" fill="#38a169"/><circle cx="15" cy="44" r="5.5" fill="#1a202c"/><circle cx="15" cy="44" r="2.2" fill="#e2e8f0"/><circle cx="45" cy="44" r="5.5" fill="#1a202c"/><circle cx="45" cy="44" r="2.2" fill="#e2e8f0"/><rect x="38" y="30" width="7" height="5" rx="1" fill="#edf2f7"/><path d="M6 34h-4M5 30H1M6 38h-4" stroke="#a0aec0" stroke-width="2" stroke-linecap="round"/></svg>`,
   eye: `<svg class="ck-icon ck-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
   comment: `<svg class="ck-icon ck-icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
@@ -59,7 +59,7 @@ const SVG = {
   toolBox: `<svg class="ck-icon ck-icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
 
   // Footer heart
-  heartFill: `<svg class="ck-icon ck-icon-xs" viewBox="0 0 24 24" fill="#ff5a36" stroke="#ff5a36" stroke-width="1"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>`
+  heartFill: `<svg class="ck-icon ck-icon-xs" viewBox="0 0 24 24" fill="var(--primary)" stroke="var(--primary)" stroke-width="1"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>`
 };
 
 export function renderHome() {
@@ -224,7 +224,7 @@ export function renderHome() {
                         <div class="ck-mock-msg ck-msg-user">The streetlight near Sector 5 park has been broken for 3 weeks</div>
                         <div class="ck-mock-msg ck-msg-ai">
                           <span class="ck-ai-badge">${SVG.bot} KALKI AI</span>
-                          Got it! I've classified this as a <strong>Public Infrastructure — Streetlight</strong> issue. Priority: <strong style="color:#e0431f;">High</strong>. Filing now...
+                          Got it! I've classified this as a <strong>Public Infrastructure — Streetlight</strong> issue. Priority: <strong style="color:var(--primary-hover);">High</strong>. Filing now...
                         </div>
                         <div class="ck-mock-typing">
                           <span></span><span></span><span></span>
@@ -551,7 +551,7 @@ export function renderHome() {
       <section class="ck-home-section ck-section-cta">
         <div class="ck-cta-wave" aria-hidden="true">
           <svg viewBox="0 0 1440 320" preserveAspectRatio="none">
-            <path fill="rgba(255,90,54,0.06)" d="M0,64L48,80C96,96,192,128,288,138.7C384,149,480,139,576,117.3C672,96,768,64,864,74.7C960,85,1056,139,1152,154.7C1248,171,1344,149,1392,138.7L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path>
+            <path fill="rgba(var(--primary-rgb),0.06)" d="M0,64L48,80C96,96,192,128,288,138.7C384,149,480,139,576,117.3C672,96,768,64,864,74.7C960,85,1056,139,1152,154.7C1248,171,1344,149,1392,138.7L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path>
           </svg>
         </div>
         <div class="ck-cta-inner">

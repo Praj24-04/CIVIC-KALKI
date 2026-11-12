@@ -32,7 +32,7 @@ export async function renderNearbyProtests() {
       <div class="card mb-6" style="background:linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color:#fff; border:none; padding:28px; border-radius:12px; box-shadow:var(--shadow-lg);">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px;">
           <div style="max-width:650px;">
-            <div style="display:inline-flex; align-items:center; gap:8px; background:rgba(255,90,54,0.2); border:1px solid rgba(255,90,54,0.4); padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; color:#ff7d5c; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;">
+            <div style="display:inline-flex; align-items:center; gap:8px; background:rgba(var(--primary-rgb),0.2); border:1px solid rgba(var(--primary-rgb),0.4); padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; color:var(--primary-500); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;">
               <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
               Civic Geo-Intelligence
             </div>
@@ -44,7 +44,7 @@ export async function renderNearbyProtests() {
           </div>
           
           <div style="display:flex; flex-direction:column; gap:10px; align-items:flex-end;">
-            <button id="btn-detect-location" class="btn btn-primary" style="padding:12px 24px; font-size:15px; font-weight:700; box-shadow:0 4px 14px rgba(255,90,54,0.4); display:inline-flex; align-items:center; gap:8px;">
+            <button id="btn-detect-location" class="btn btn-primary" style="padding:12px 24px; font-size:15px; font-weight:700; box-shadow:0 4px 14px rgba(var(--primary-rgb),0.4); display:inline-flex; align-items:center; gap:8px;">
               <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               Find Protests Near Me
             </button>
@@ -256,7 +256,7 @@ function initNearbyView() {
           <div style="padding:4px; max-width:220px;">
             <div style="font-weight:700; font-size:13px; color:#0f172a; margin-bottom:4px;">${escapeHtml(item.name)}</div>
             <div style="font-size:11px; color:#64748b; margin-bottom:6px;">${escapeHtml(item.entityType?.name || 'Civic Event')} • ${distance}</div>
-            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block; font-size:11px; color:#ff5a36; font-weight:600; text-decoration:none;">Open in Google Maps →</a>
+            <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block; font-size:11px; color:var(--primary); font-weight:600; text-decoration:none;">Open in Google Maps →</a>
           </div>
         `);
       }

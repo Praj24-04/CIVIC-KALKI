@@ -74,7 +74,7 @@ export async function openBuzzDetailModal(post, onUpdate = null) {
           </div>
           ${post.cta_text ? `<div class="ck-buzz-modal-cta-badge">${BI.zap(12, '#ea580c')} ${escapeHtml(post.cta_text)}</div>` : ''}
           <div class="ck-card-watermark">
-            <span class="ck-wm-flame">${BI.flame(14, '#ff5a36')}</span>
+            <span class="ck-wm-flame">${BI.flame(14, 'var(--primary)')}</span>
             <span class="ck-wm-brand">CIVIC-KALKI</span>
           </div>
         </div>
@@ -82,7 +82,7 @@ export async function openBuzzDetailModal(post, onUpdate = null) {
         <!-- Meta and Linked Issue Banner -->
         <div class="ck-buzz-modal-linked-box">
           <div style="flex: 1; min-width: 0;">
-            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: #ff5a36; letter-spacing: 0.05em;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: var(--primary); letter-spacing: 0.05em;">
               Linked ${escapeHtml(post.linked_type || 'Issue')} #${escapeHtml(post.linked_id)}
             </div>
             <div style="font-size: 0.96rem; font-weight: 700; color: #0f172a; margin-top: 2px;" class="ck-truncate">
@@ -428,7 +428,7 @@ export async function openBuzzCreateModal(preselectedEntityId = null, onSuccess 
         <!-- Top bar with Title & Close -->
         <div class="ck-buzz-modal-topbar" style="padding: 16px 22px;">
           <div class="ck-buzz-modal-title-wrap">
-            <span style="display:inline-flex; align-items:center; color:#ff5a36;">${BI.sparkles(20, '#ff5a36')}</span>
+            <span style="display:inline-flex; align-items:center; color:var(--primary);">${BI.sparkles(20, 'var(--primary)')}</span>
             <span style="font-weight: 800; font-size: 1.1rem; color: #0f172a;">
               ${initialDraft ? 'Edit Civic Buzz Post' : 'Create Civic Buzz Post'}
             </span>
@@ -484,7 +484,7 @@ export async function openBuzzCreateModal(preselectedEntityId = null, onSuccess 
               <button type="button" class="btn btn-secondary" id="ck-wiz-draft-btn" style="border-radius:999px; font-weight:700;">
                 Save as Draft
               </button>
-              <button type="button" class="btn btn-primary" id="ck-wiz-publish-btn" style="border-radius:999px; font-weight:800; padding:10px 22px; background:linear-gradient(135deg, #ff5a36, #ea580c); display:inline-flex; align-items:center; gap:6px;">
+              <button type="button" class="btn btn-primary" id="ck-wiz-publish-btn" style="border-radius:999px; font-weight:800; padding:10px 22px; background:linear-gradient(135deg, var(--primary), #ea580c); display:inline-flex; align-items:center; gap:6px;">
                 <span>Publish to Civic Buzz</span> ${BI.flame(16, '#ffffff')}
               </button>
             ` : `
@@ -647,7 +647,7 @@ export async function openBuzzCreateModal(preselectedEntityId = null, onSuccess 
           const isMovement = e.entity_type_id === 1 || e.entity_type_id === 2;
           return `
             <div class="ck-wizard-entity-card ${isSelected ? 'active' : ''}" data-id="${e.entity_id}" style="
-              border: 1.5px solid ${isSelected ? '#ff5a36' : '#e2e8f0'};
+              border: 1.5px solid ${isSelected ? 'var(--primary)' : '#e2e8f0'};
               background: ${isSelected ? '#fff7ed' : '#ffffff'};
               border-radius: 12px;
               padding: 10px 14px;
@@ -660,7 +660,7 @@ export async function openBuzzCreateModal(preselectedEntityId = null, onSuccess 
             ">
               <div style="flex:1; min-width:0;">
                 <div style="display:flex; align-items:center; gap:8px;">
-                  <span style="font-size:0.7rem; font-weight:800; color:#ff5a36;">#${e.entity_id}</span>
+                  <span style="font-size:0.7rem; font-weight:800; color:var(--primary);">#${e.entity_id}</span>
                   <span class="badge badge-secondary" style="font-size:0.65rem;">${e.is_mine ? 'My Item' : 'Community'}</span>
                   <span class="ck-buzz-status-pill ${escapeHtml(e.status || 'submitted')}" style="font-size:0.65rem; padding:1px 6px;">
                     ${escapeHtml(e.status || 'Active')}
@@ -671,7 +671,7 @@ export async function openBuzzCreateModal(preselectedEntityId = null, onSuccess 
                 </div>
                 ${e.area ? `<div style="font-size:0.75rem; color:#64748b; display:inline-flex; align-items:center; gap:4px;">${BI.pin(12, '#64748b')} ${escapeHtml(e.area)}</div>` : ''}
               </div>
-              <div style="display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; ${isSelected ? 'background:#ff5a36; color:#ffffff;' : 'border:1.5px solid #cbd5e1; color:transparent;'}">
+              <div style="display:flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; ${isSelected ? 'background:var(--primary); color:#ffffff;' : 'border:1.5px solid #cbd5e1; color:transparent;'}">
                 ${isSelected ? BI.check(13, '#ffffff') : ''}
               </div>
             </div>
@@ -786,7 +786,7 @@ export async function openBuzzCreateModal(preselectedEntityId = null, onSuccess 
         <!-- AI Captions Options Container -->
         <div id="ck-wiz-ai-loading" style="text-align:center; padding:24px 0;">
           <div class="spinner" style="margin: 0 auto 10px;"></div>
-          <div style="font-size:0.8rem; font-weight:700; color:#ff5a36;">Generating 3 smart civic captions with Gemini AI...</div>
+          <div style="font-size:0.8rem; font-weight:700; color:var(--primary);">Generating 3 smart civic captions with Gemini AI...</div>
           <div style="font-size:0.72rem; color:#64748b; margin-top:2px;">Applying safety rules: no personal data, no mockery of people, mock problem only.</div>
         </div>
 
@@ -867,7 +867,7 @@ export async function openBuzzCreateModal(preselectedEntityId = null, onSuccess 
               transition: all 0.15s;
             ">
               <div style="font-weight:700; color:#0f172a; font-size:0.88rem;">"${escapeHtml(cap.caption)}"</div>
-              <div style="font-size:0.72rem; font-weight:700; color:#ff5a36; margin-top:3px;">
+              <div style="font-size:0.72rem; font-weight:700; color:var(--primary); margin-top:3px;">
                 CTA: ${escapeHtml(cap.cta_text || 'Take Action')}
               </div>
             </div>
@@ -953,7 +953,7 @@ export async function openBuzzCreateModal(preselectedEntityId = null, onSuccess 
         <!-- Live Preview Showcase -->
         <div class="ck-wizard-preview-container">
           <div id="ck-wiz-preview-loading" style="text-align:center; padding:40px; color:#ffffff;">
-            <div class="spinner" style="margin: 0 auto 10px; border-color: rgba(255,255,255,0.2); border-top-color: #ff5a36;"></div>
+            <div class="spinner" style="margin: 0 auto 10px; border-color: rgba(255,255,255,0.2); border-top-color: var(--primary);"></div>
             <div style="font-size:0.8rem; font-weight:700;">Rendering PNG in browser...</div>
           </div>
           <div id="ck-wiz-preview-box" class="ck-wizard-preview-scaler" style="display:none;">

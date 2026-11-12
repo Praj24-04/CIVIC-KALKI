@@ -50,10 +50,10 @@ export async function renderCivicBuzz() {
           <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
             <a href="/dashboard" class="ck-buzz-back-link">← Dashboard</a>
             <span style="color:#64748b; font-size:0.8rem;">/</span>
-            <span style="color:#ff5a36; font-size:0.8rem; font-weight:700;">Community</span>
+            <span style="color:var(--primary); font-size:0.8rem; font-weight:700;">Community</span>
           </div>
           <h1 class="ck-buzz-gallery-title">
-            CIVIC BUZZ <span class="ck-buzz-flame" style="display:inline-flex; align-items:center;">${BI.flame(22, '#ff5a36')}</span>
+            CIVIC BUZZ <span class="ck-buzz-flame" style="display:inline-flex; align-items:center;">${BI.flame(22, 'var(--primary)')}</span>
           </h1>
           <p class="ck-buzz-gallery-subtitle">
             Youth-powered civic conversations turning everyday problems into visible municipal accountability.

@@ -1,6 +1,6 @@
 import { requireAuth, getUser } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
-import { entities as apiEntities, forms as apiForms, agent as agentApi } from '../api.js';
+import { entities as apiEntities, forms as apiForms, agent as agentApi, admin as apiAdmin } from '../api.js';
 import { getStoredLocation, requestLocation, storeLocation, isLocationDismissed, dismissLocation, formatLocationForAgent } from '../utils/locationService.js';
 import { toastError } from '../components/toast.js';
 import { navigate } from '../router.js';
@@ -85,377 +85,243 @@ function formatCitizenArea(item) {
 }
 
 // ── Skeleton Loader for Instant Animated Shimmer on Citizen Dashboard ─────────
-function renderCitizenDashSkeleton() {
+// ── Small shared helpers for every role's workspace ─────────────────────────
+
+const ICON = {
+  arrow: '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>',
+  list: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>',
+  chart: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>',
+  shield: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>',
+  build: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>',
+  users: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>',
+  graph: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>',
+  buzz: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/></svg>',
+  form: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>',
+  pin: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
+};
+
+function greeting() {
+  const hour = new Date().getHours();
+  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+function firstNameOf(user) {
+  return String(user?.name || '').trim().split(/\s+/)[0] || 'there';
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+  const days = Math.floor(seconds / 86400);
+  return days < 14 ? `${days} day${days === 1 ? '' : 's'} ago` : new Date(iso).toLocaleDateString();
+}
+
+/** Status pill: the label comes from the shared terminology, the tone from the kind of status. */
+function statusPillHtml(status) {
+  const s = String(status || '').toLowerCase();
+  let tone = 'is-waiting';
+  if (['approved', 'resolved', 'completed', 'closed', 'published', 'audited', 'reconciled'].includes(s)) tone = 'is-done';
+  else if (['rejected', 'deleted', 'failed'].includes(s)) tone = 'is-stopped';
+  else if (['draft', ''].includes(s)) tone = 'is-neutral';
+  return `<span class="ws-pill ${tone}">${escapeHtml(formatStatusLabel(status) || 'Draft')}</span>`;
+}
+
+function moduleLabel(item) {
+  const type = item?.entityType || (item?.entity_type ? { name: item.entity_type } : null);
+  if (!type) return '';
+  return getCapabilityPresentation(type).shortTitle || type.name || '';
+}
+
+/** One row in a work list. `item` is an entity or a notification-feed entry. */
+function workRowHtml({ id, title, meta = [], side = '', action = 'Open' }) {
   return `
-    <div class="ck-rx-layout" aria-busy="true" aria-label="Loading dashboard">
-      <main class="ck-rx-main">
-        <!-- Greeting Skeleton -->
-        <div style="margin-bottom:20px;">
-          <div class="ck-skeleton-shimmer" style="width:220px; height:28px; margin-bottom:6px; border-radius:6px;"></div>
-          <div class="ck-skeleton-shimmer" style="width:280px; height:14px; border-radius:4px;"></div>
-        </div>
+    <a class="ws-item" href="/entities/${Number(id)}">
+      <span style="min-width:0;">
+        <span class="ws-item-title" title="${escapeHtml(title)}">${escapeHtml(title)}</span>
+        <span class="ws-item-meta">${meta.filter(Boolean).map((m) => `<span>${escapeHtml(m)}</span>`).join('')}</span>
+      </span>
+      <span class="ws-item-side">${side}<span class="ws-item-go">${escapeHtml(action)} ${ICON.arrow}</span></span>
+    </a>`;
+}
 
-        <!-- Hero Shimmer Card -->
-        <div class="ck-agent-dark-card" style="min-height: 220px; display:flex; flex-direction:column; justify-content:space-between;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <div style="display:flex; align-items:center; gap:12px;">
-              <div class="ck-skeleton-shimmer" style="width:36px; height:36px; border-radius:10px; background:rgba(255,255,255,0.12);"></div>
-              <div>
-                <div class="ck-skeleton-shimmer" style="width:140px; height:18px; margin-bottom:6px; background:rgba(255,255,255,0.18);"></div>
-                <div class="ck-skeleton-shimmer" style="width:220px; height:12px; background:rgba(255,255,255,0.1);"></div>
-              </div>
-            </div>
-          </div>
-          <div class="ck-skeleton-shimmer" style="width:100%; height:46px; border-radius:999px; background:rgba(255,255,255,0.1); margin:24px 0 14px 0;"></div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <div class="ck-skeleton-shimmer" style="width:120px; height:26px; border-radius:999px; background:rgba(255,255,255,0.08);"></div>
-            <div class="ck-skeleton-shimmer" style="width:140px; height:26px; border-radius:999px; background:rgba(255,255,255,0.08);"></div>
-            <div class="ck-skeleton-shimmer" style="width:110px; height:26px; border-radius:999px; background:rgba(255,255,255,0.08);"></div>
-            <div class="ck-skeleton-shimmer" style="width:130px; height:26px; border-radius:999px; background:rgba(255,255,255,0.08);"></div>
-          </div>
-        </div>
+function actionHtml(href, icon, title, hint) {
+  return `
+    <a class="ws-action" href="${href}">
+      <span class="ws-action-icon">${icon}</span>
+      <span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(hint)}</small></span>
+    </a>`;
+}
 
-        <!-- Stats KPI Row Skeleton (3 tiles) -->
-        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:20px; margin-bottom:8px;">
-          ${[1, 2, 3].map(() => `
-            <div style="background:#fff; border:1px solid #e8ecf0; border-radius:14px; padding:16px 20px; display:flex; align-items:center; gap:16px;">
-              <div class="ck-skeleton-shimmer" style="width:36px; height:36px; border-radius:8px;"></div>
-              <div style="flex:1;">
-                <div class="ck-skeleton-shimmer" style="width:32px; height:24px; margin-bottom:4px;"></div>
-                <div class="ck-skeleton-shimmer" style="width:70px; height:12px;"></div>
-              </div>
-            </div>
-          `).join('')}
-        </div>
+function factHtml(num, label, href = null) {
+  const inner = `<div class="ws-fact-num">${escapeHtml(String(num))}</div><div class="ws-fact-label">${escapeHtml(label)}</div>`;
+  return href ? `<a class="ws-fact" href="${href}">${inner}</a>` : `<div class="ws-fact">${inner}</div>`;
+}
 
-        <!-- Around You Skeleton -->
-        <div style="margin-top:24px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-            <div>
-              <div class="ck-skeleton-shimmer" style="width:130px; height:22px; margin-bottom:6px;"></div>
-              <div class="ck-skeleton-shimmer" style="width:250px; height:14px;"></div>
-            </div>
-            <div class="ck-skeleton-shimmer" style="width:64px; height:16px;"></div>
-          </div>
-          <div class="ck-rx-issues-grid">
-            ${[1, 2, 3].map(() => `
-              <div class="ck-skeleton-issue-card">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div class="ck-skeleton-shimmer" style="width:32px; height:32px; border-radius:8px;"></div>
-                  <div class="ck-skeleton-shimmer" style="width:64px; height:20px; border-radius:999px;"></div>
-                </div>
-                <div class="ck-skeleton-shimmer" style="width:85%; height:16px; margin-top:6px;"></div>
-                <div class="ck-skeleton-shimmer" style="width:50%; height:12px;"></div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:10px; border-top:1px solid #f1f5f9;">
-                  <div class="ck-skeleton-shimmer" style="width:80px; height:12px;"></div>
-                  <div class="ck-skeleton-shimmer" style="width:40px; height:12px;"></div>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
+/**
+ * Records waiting for THIS user, from the derived notification feed. The feed
+ * works out "whose turn is it" from each module's workflow metadata, so this
+ * is right for every module, including ones deployed from the builder.
+ * Oldest first: the record that has waited longest is the next one to review.
+ */
+async function loadMyQueue() {
+  const res = await apiEntities.notifications(100).catch(() => ({ data: [] }));
+  return (res.data || []).filter((n) => n.kind === 'queue').reverse();
+}
 
-        <!-- Trending Initiatives Skeleton -->
-        <div style="background:#fff; border:1px solid #e8ecf0; border-radius:16px; padding:20px 22px; margin-top:22px;">
-          <div class="ck-skeleton-shimmer" style="width:150px; height:20px; margin-bottom:6px;"></div>
-          <div class="ck-skeleton-shimmer" style="width:200px; height:12px; margin-bottom:16px;"></div>
-          ${[1, 2, 3].map(() => `
-            <div style="display:flex; align-items:center; gap:14px; padding:10px 0; border-bottom:1px solid #f1f5f9;">
-              <div class="ck-skeleton-shimmer" style="width:24px; height:24px; border-radius:4px;"></div>
-              <div style="flex:1;">
-                <div class="ck-skeleton-shimmer" style="width:70%; height:14px; margin-bottom:4px;"></div>
-                <div class="ck-skeleton-shimmer" style="width:40%; height:10px;"></div>
-              </div>
-              <div class="ck-skeleton-shimmer" style="width:80px; height:12px;"></div>
-            </div>
-          `).join('')}
-        </div>
-      </main>
+function queueRowHtml(n) {
+  return workRowHtml({
+    id: n.entity_id,
+    title: n.entity_name,
+    meta: [moduleLabelFromName(n.entity_type), n.area || 'No ward', n.actor ? `from ${n.actor}` : '', `waiting since ${timeAgo(n.datetime)}`],
+    action: 'Review',
+  });
+}
 
-      <!-- Sidebar Skeleton -->
-      <aside class="ck-rx-aside">
-        <div class="ck-rx-sidebar-panel">
-          <div class="ck-skeleton-shimmer" style="width:100px; height:16px; margin-bottom:14px;"></div>
-          <div class="ck-skeleton-shimmer" style="width:100%; height:36px; border-radius:10px; margin-bottom:6px;"></div>
-          <div class="ck-skeleton-shimmer" style="width:100%; height:36px; border-radius:10px; margin-bottom:6px;"></div>
-          <div class="ck-skeleton-shimmer" style="width:100%; height:36px; border-radius:10px;"></div>
-        </div>
-        <div class="ck-rx-sidebar-panel" style="min-height:240px;">
-          <div class="ck-skeleton-shimmer" style="width:130px; height:16px; margin-bottom:12px;"></div>
-          <div class="ck-skeleton-shimmer" style="width:100%; height:170px; border-radius:12px;"></div>
-        </div>
-      </aside>
-    </div>
-  `;
+function moduleLabelFromName(name) {
+  return name ? (getCapabilityPresentation({ name }).shortTitle || name) : '';
+}
+
+function focusHtml({ count, waitingTitle, waitingText, clearTitle, clearText, nextId, nextLabel = 'Review next' }) {
+  if (!count) {
+    return `
+      <section class="ws-focus is-clear" aria-live="polite">
+        <div class="ws-focus-num" aria-hidden="true">✓</div>
+        <div class="ws-focus-text"><strong>${escapeHtml(clearTitle)}</strong><span>${escapeHtml(clearText)}</span></div>
+      </section>`;
+  }
+  return `
+    <section class="ws-focus" aria-live="polite">
+      <div class="ws-focus-num">${count}</div>
+      <div class="ws-focus-text"><strong>${escapeHtml(waitingTitle)}</strong><span>${escapeHtml(waitingText)}</span></div>
+      ${nextId ? `<a class="btn" href="/entities/${Number(nextId)}">${escapeHtml(nextLabel)} ${ICON.arrow}</a>` : ''}
+    </section>`;
+}
+
+function renderDashSkeleton() {
+  return `
+    <div class="ws" aria-busy="true" aria-label="Loading your workspace">
+      <div>
+        <div class="ck-skeleton-shimmer" style="width:260px; height:30px; margin-bottom:8px; border-radius:8px;"></div>
+        <div class="ck-skeleton-shimmer" style="width:340px; height:14px; border-radius:6px;"></div>
+      </div>
+      <div class="ck-skeleton-shimmer" style="width:100%; height:120px; border-radius:20px;"></div>
+      <div class="ck-skeleton-shimmer" style="width:100%; height:240px; border-radius:20px;"></div>
+    </div>`;
 }
 
 export async function renderDashboard() {
   if (!requireAuth(navigate)) return;
   const user = getUser();
   const isCitizen = user.role === 'citizen';
-  
+  const titles = {
+    citizen: 'Home',
+    coordinator_area: 'Ward desk',
+    coordinator_general: 'General desk',
+    director: 'Approvals',
+    admin: 'Platform',
+  };
+  const pageTitle = titles[user.role] || 'Home';
+
   const app = document.getElementById('app');
-  const initialContent = isCitizen
-    ? renderCitizenDashSkeleton()
-    : '<div class="loading-overlay"><div class="spinner spinner-lg"></div></div>';
-
-  app.innerHTML = renderLayout(`
-    ${!isCitizen ? `
-    <div class="page-header">
-      <div class="page-header-left">
-        <h1>Loading Workspace...</h1>
-      </div>
-    </div>` : '<div id="dash-actions" style="display:none;"></div>'}
-    <div id="dash-content">
-      ${initialContent}
-    </div>
-  `, isCitizen ? 'Home' : 'Workspace');
-  attachLayoutEvents();
-
-  if (isCitizen) {
-    const pageContent = document.getElementById('page-content');
-    if (pageContent) pageContent.classList.add('ck-citizen-page-content');
-  }
+  const shell = (metaTypes) => {
+    app.innerHTML = renderLayout(`<div id="dash-content">${renderDashSkeleton()}</div>`, pageTitle, metaTypes);
+    attachLayoutEvents();
+  };
+  shell([]);
 
   try {
-    const metaRes = await apiForms.getMetadata().catch(() => ({ success: false, data: { entityTypes: [], rules: [], domains: [] } }));
+    const metaRes = await apiForms.getMetadata().catch(() => ({ data: { entityTypes: [], rules: [], domains: [] } }));
     const metaData = metaRes.data || { entityTypes: [], rules: [], domains: [] };
+    // Staff sidebars list the modules, so the shell is drawn again once they are known.
+    if (!isCitizen) shell(metaData.entityTypes);
 
-    let pageTitle = 'Home';
-    let pageSubtitle = `Good day, <strong>${escapeHtml(user.name)}</strong>. Here is what is happening in your civic workspace.`;
-    if (user.role === 'coordinator_area' || user.role === 'coordinator_general') {
-      pageTitle = 'Civic Operations Workspace';
-      pageSubtitle = `Operations view for <strong>${escapeHtml(user.name)}</strong>`;
-    } else if (user.role === 'director') {
-      pageTitle = 'Executive Governance Workspace';
-      pageSubtitle = `Executive view for <strong>${escapeHtml(user.name)}</strong>`;
-    } else if (user.role === 'admin') {
-      pageTitle = 'Civic OS Administration';
-      pageSubtitle = `Platform admin for <strong>${escapeHtml(user.name)}</strong>`;
-    }
-
-    if (!isCitizen) {
-      app.innerHTML = renderLayout(`
-        <div class="page-header mb-6">
-          <div class="page-header-left">
-            <h1 style="font-size:1.75rem; font-weight:800; color:var(--text-primary);">${escapeHtml(pageTitle)}</h1>
-            <p style="color:var(--text-secondary); margin-top:2px;">${pageSubtitle}</p>
-          </div>
-          <div class="page-header-actions" id="dash-actions"></div>
-        </div>
-        <div id="dash-content">
-          <div class="loading-overlay"><div class="spinner spinner-lg"></div></div>
-        </div>
-      `, pageTitle, metaData.entityTypes);
-      attachLayoutEvents();
-    }
-
-    const newContent = document.getElementById('dash-content');
-    const newActions = document.getElementById('dash-actions');
-
-    if (user.role === 'citizen') {
-      await renderCitizenDash(newContent, user, metaData);
-    } else if (user.role === 'coordinator_area') {
-      if (newActions) newActions.innerHTML = `<a href="/entities?status=submitted" class="btn btn-primary">Review Queue</a>`;
-      await renderCoordinatorAreaDash(newContent, user, metaData);
-    } else if (user.role === 'coordinator_general') {
-      if (newActions) newActions.innerHTML = `<a href="/entities?status=submitted" class="btn btn-primary">Review Queue</a>`;
-      await renderCoordinatorGeneralDash(newContent, user, metaData);
-    } else if (user.role === 'director') {
-      if (newActions) newActions.innerHTML = `<a href="/entities?status=coordinator_approved" class="btn btn-primary">Executive Approvals Queue</a>`;
-      await renderDirectorDash(newContent, user, metaData);
-    } else if (user.role === 'admin') {
-      if (newActions) newActions.innerHTML = `
-        <a href="/module-builder" class="btn btn-secondary" style="display:inline-flex; align-items:center; gap:8px;">
-          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
-          No-Code Builder
-        </a>
-        <a href="/admin" class="btn btn-primary">User Admin</a>
-      `;
-      await renderAdminDash(newContent, user, metaData);
-    }
-
-    if (typeof window.civicTranslatePage === 'function') {
-      window.civicTranslatePage();
-    }
+    const content = document.getElementById('dash-content');
+    if (user.role === 'citizen') await renderCitizenDash(content, user, metaData);
+    else if (user.role === 'coordinator_area') await renderCoordinatorAreaDash(content, user, metaData);
+    else if (user.role === 'coordinator_general') await renderCoordinatorGeneralDash(content, user, metaData);
+    else if (user.role === 'director') await renderDirectorDash(content, user, metaData);
+    else if (user.role === 'admin') await renderAdminDash(content, user, metaData);
   } catch (err) {
     toastError('Failed to load workspace data');
     const content = document.getElementById('dash-content');
-    if (content) {
-      content.innerHTML = `<div class="alert alert-error">Failed to load workspace data. Please try again.</div>`;
-    }
-    if (typeof window.civicTranslatePage === 'function') {
-      window.civicTranslatePage();
-    }
+    if (content) content.innerHTML = '<div class="alert alert-error">Your workspace could not be loaded. Please try again.</div>';
   }
+  if (typeof window.civicTranslatePage === 'function') window.civicTranslatePage();
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// CITIZEN — ask for something, then follow it.
+// The assistant is the first thing on the page; below it are the citizen's own
+// requests and what has changed on them. Everything shown is the citizen's real
+// data: nothing is padded out with examples.
+// ════════════════════════════════════════════════════════════════════════════
+let _nearbyListener = null;
+
 async function renderCitizenDash(container, user, metaData) {
-  // All data fetches have individual .catch() guards — the citizen dash
-  // should never propagate to the outer "Failed to load workspace data" handler.
-  const myRes = await apiEntities.list({ owner_user_id: user.user_id, limit: 50 }).catch(() => ({ data: [] }));
+  const [myRes, feedRes] = await Promise.all([
+    apiEntities.list({ owner_user_id: user.user_id, limit: 50 }).catch(() => ({ data: [] })),
+    apiEntities.notifications(6).catch(() => ({ data: [] })),
+  ]);
   const myItems = myRes.data || [];
+  const updates = (feedRes.data || []).slice(0, 4);
 
-  // Filter user's 3 latest active (non-draft, non-closed, non-rejected) requests
-  const myActiveRequests = myItems
-    .filter(i => !['draft', 'closed', 'rejected', 'deleted'].includes((i.status || '').toLowerCase()))
-    .slice(0, 3);
+  const statusOf = (i) => String(i.status || '').toLowerCase();
+  const drafts = myItems.filter((i) => statusOf(i) === 'draft');
+  const decided = myItems.filter((i) => ['approved', 'resolved', 'completed', 'closed'].includes(statusOf(i)));
+  const stopped = myItems.filter((i) => ['rejected', 'deleted'].includes(statusOf(i)));
+  const inProgress = myItems.filter((i) => !drafts.includes(i) && !decided.includes(i) && !stopped.includes(i));
+  // What the citizen most wants to see first: things still moving, then the rest.
+  const ordered = [...inProgress, ...decided, ...stopped, ...drafts].slice(0, 5);
 
-  // Community data filtered for PUBLICLY VISIBLE active items only (never draft, closed, or rejected in Around You)
-  // Use real nearby endpoint if user has shared location; fall back to general list
-  const _storedLocForFetch = getStoredLocation();
-  let publicRes;
-  if (_storedLocForFetch) {
-    publicRes = await apiEntities.nearby(_storedLocForFetch.lat, _storedLocForFetch.lng, 10).catch(() => null);
-    if (!publicRes || !publicRes.data) publicRes = await apiEntities.list({ limit: 30 }).catch(() => ({ data: [] }));
-  } else {
-    publicRes = await apiEntities.list({ limit: 30 }).catch(() => ({ data: [] }));
-  }
-  const isActuallyActive = (i) => !['draft', 'closed', 'rejected', 'deleted'].includes((i.status || '').toLowerCase());
-  const publicItems = ((publicRes && publicRes.data) || []).filter(isActuallyActive);
+  const requestsHtml = ordered.length
+    ? ordered.map((i) => workRowHtml({
+        id: i.entity_id,
+        title: i.name,
+        meta: [moduleLabel(i), i.area],
+        side: statusPillHtml(i.status),
+        action: 'Open',
+      })).join('')
+    : `<div class="ws-empty"><strong>You have not asked for anything yet.</strong>
+         Tell the assistant above what is wrong, or <a href="/entities/new">fill in a form</a>. You will be able to follow it here.</div>`;
 
-  // Separate Issues and Initiatives
-  const isInitiativeItem = (i) => {
-    const typeName = (i.entityType?.name || '').toLowerCase();
-    const name = (i.name || '').toLowerCase();
-    return typeName.includes('movement') || typeName.includes('initiative') || i.entity_type_id === 1 || name.includes('drive') || name.includes('cleanup') || name.includes('plantation');
+  // Each update: which record, what changed (in plain status words), who did it and when.
+  const updateLine = (n) => {
+    if (n.kind === 'linked') return 'A linked record was created automatically';
+    const to = formatStatusLabel(n.to_status) || n.to_status;
+    return n.from_status ? `${formatStatusLabel(n.from_status) || n.from_status} → ${to}` : `Now ${to}`;
   };
-
-  const dbIssues = publicItems.filter(i => !isInitiativeItem(i));
-  const dbInitiatives = publicItems.filter(i => isInitiativeItem(i));
-
-  const demoIssues = [
-    { entity_id: 1204, name: 'Garbage not collected near FC Road', area: 'FC Road, Shivajinagar', status: 'coordinator_approved', entityType: { name: 'Grievance' } },
-    { entity_id: 1207, name: 'Broken streetlights on JM Road', area: 'JM Road, Shivajinagar', status: 'submitted', entityType: { name: 'Grievance' } },
-    { entity_id: 639,  name: 'Pothole and damaged asphalt near Karve Statue', area: 'Karve Road, Shivajinagar', status: 'coordinator_approved', entityType: { name: 'Grievance' } },
-  ];
-
-  const demoInitiatives = [
-    { entity_id: 638,  name: 'Shivajinagar Tree Plantation & Clean Air Drive', area: 'Ward 14 · Shivajinagar', status: 'approved', entityType: { name: 'Movement' } },
-    { entity_id: 640,  name: 'Mutha Riverfront Community Cleanup Drive', area: 'Mutha Riverfront, Shivajinagar', status: 'approved', entityType: { name: 'Movement' } },
-    { entity_id: 641,  name: 'Model Colony Solar Lighting Initiative', area: 'Model Colony, Shivajinagar', status: 'approved', entityType: { name: 'Movement' } },
-  ];
-
-  const finalIssues = dbIssues.length >= 2 ? dbIssues.slice(0, 6) : [...dbIssues, ...demoIssues].slice(0, 6);
-  const finalInitiatives = dbInitiatives.length >= 2 ? dbInitiatives.slice(0, 6) : [...dbInitiatives, ...demoInitiatives].slice(0, 6);
-
-  const hour = new Date().getHours();
-  const greetingTime = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const firstName = (user.name || 'Demo').split(' ')[0];
-  const displayArea = _storedLocForFetch?.area ? _storedLocForFetch.area.split(',')[0].trim() : 'Dhayari';
-
-  const demoActiveRequests = [
-    { entity_id: 1204, name: 'Overflowing community waste bin near Model Colony', status: 'coordinator_approved', updated_at: null, stage: 'Coordinator review' },
-    { entity_id: 1207, name: 'Garbage not collected near FC Road for 4 days', status: 'coordinator_approved', updated_at: null, stage: 'Coordinator review' },
-    { entity_id: 640,  name: 'Mutha Riverfront Community Cleanup Drive', status: 'approved', updated_at: null, stage: 'Live initiative' },
-  ];
-  const finalActiveRequests = myActiveRequests.length >= 3 
-    ? myActiveRequests.slice(0, 3) 
-    : [...myActiveRequests, ...demoActiveRequests].slice(0, 3);
-
-  // Status pill helper: Amber for in-progress/submitted, Green for resolved, Grey for closed/draft (never reddish!)
-  const statusPill = (status) => {
-    const s = (status || '').toLowerCase();
-    if (['submitted', 'coordinator_approved', 'in_progress', 'in_review', 'pending'].includes(s)) {
-      const label = (s === 'submitted' || s === 'pending') ? 'Submitted' : 'In Progress';
-      return `<span class="ck-rx-status-pill ck-status-amber" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:0.78rem; font-weight:700; padding:4px 10px; white-space:nowrap; flex-shrink:0;">${label}</span>`;
-    }
-    if (['approved', 'resolved', 'completed'].includes(s)) {
-      const label = (s === 'completed' || s === 'resolved') ? 'Resolved' : 'Active';
-      return `<span class="ck-rx-status-pill ck-status-green" style="background:#dcfce7; color:#15803d; border:1px solid #bbf7d0; font-size:0.78rem; font-weight:700; padding:4px 10px; white-space:nowrap; flex-shrink:0;">${label}</span>`;
-    }
-    if (['closed', 'rejected', 'draft'].includes(s)) {
-      const label = s === 'draft' ? 'Draft' : 'Closed';
-      return `<span class="ck-rx-status-pill ck-status-grey" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; font-size:0.78rem; font-weight:700; padding:4px 10px; white-space:nowrap; flex-shrink:0;">${label}</span>`;
-    }
-    return `<span class="ck-rx-status-pill ck-status-amber" style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:0.78rem; font-weight:700; padding:4px 10px; white-space:nowrap; flex-shrink:0;">In Progress</span>`;
-  };
-
-  const formatRelativeTime = (dateStr) => {
-    if (!dateStr) return 'Updated recently';
-    const now = new Date();
-    const d = new Date(dateStr);
-    const diffSec = Math.floor((now - d) / 1000);
-    if (diffSec < 60) return 'Just now';
-    const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    const diffDay = Math.floor(diffHr / 24);
-    if (diffDay < 7) return `${diffDay}d ago`;
-    return d.toLocaleDateString();
-  };
-
-  const getCategoryIcon = (name = '') => {
-    const n = name.toLowerCase();
-    if (n.includes('tree') || n.includes('park') || n.includes('green') || n.includes('garden')) return DSVG.leaf;
-    if (n.includes('light') || n.includes('wire') || n.includes('power') || n.includes('pole')) return DSVG.zap;
-    if (n.includes('garbage') || n.includes('waste') || n.includes('sanitation') || n.includes('clean')) return DSVG.trash;
-    return DSVG.road;
-  };
-
-  const renderCardGrid = (items) => {
-    if (!items || items.length === 0) {
-      return `
-        <div class="ck-rx-empty-state" style="grid-column: 1 / -1; padding: 32px 16px;">
-          <div class="ck-rx-empty-icon">${DSVG.checkCircle}</div>
-          <h4 class="ck-rx-empty-title">All clear near Shivajinagar!</h4>
-          <p class="ck-rx-empty-desc">There are no open items in your neighborhood right now.</p>
-        </div>
-      `;
-    }
-    return items.map((item, idx) => {
-      const cleanTitle = item.name;
-      const cleanArea = formatCitizenArea(item);
-      const icon = getCategoryIcon(cleanTitle);
-      return `
-        <div class="ck-rx-issue-card">
-          <div class="ck-rx-issue-top">
-            <div class="ck-rx-issue-icon">
-              ${icon}
-            </div>
-            ${statusPill(item.status)}
-          </div>
-          <div class="ck-rx-issue-name" title="${escapeHtml(cleanTitle)}">${escapeHtml(cleanTitle)}</div>
-          <div class="ck-rx-issue-area">
-            ${DSVG.mapPin}
-            <span>${escapeHtml(cleanArea)}</span>
-          </div>
-          <div class="ck-rx-issue-footer" style="display:flex; justify-content:space-between; align-items:center;">
-            <span class="ck-rx-issue-meta" style="font-size:0.84rem; color:#64748b; font-weight:500;">
-              ${(idx * 14 + 18)} citizens backing
-            </span>
-            <a href="/entities/${item.entity_id || ''}" class="ck-rx-issue-link" style="color:#ff5a36; font-size:0.86rem; font-weight:700; text-decoration:none;">
-              View →
-            </a>
-          </div>
-        </div>
-      `;
-    }).join('');
-  };
+  const updatesHtml = updates.length
+    ? updates.map((n) => `
+        <a class="ws-item" href="/entities/${Number(n.entity_id)}" style="grid-template-columns:1fr;">
+          <span style="min-width:0;">
+            <span class="ws-item-title" style="font-size:0.92rem;">${escapeHtml(n.entity_name)}</span>
+            <span class="ws-item-update">${escapeHtml(updateLine(n))}</span>
+            <span class="ws-item-meta">${n.actor ? `<span>by ${escapeHtml(n.actor)}</span>` : ''}<span>${escapeHtml(timeAgo(n.datetime))}</span></span>
+          </span>
+        </a>`).join('')
+    : '<div class="ws-empty">Nothing new. When a coordinator or the director acts on one of your requests, it shows here.</div>';
 
   container.innerHTML = `
-    <div class="ck-rx-layout">
-      <!-- ░░ MAIN CONTENT ░░ -->
-      <main class="ck-rx-main">
-
-        <!-- ══════════════════════════════════════════════════════════════
-             0. CITIZEN GREETING HEADER
-             ══════════════════════════════════════════════════════════════ -->
-        <div class="ck-citizen-greeting" style="margin-bottom:20px;">
-          <h1 id="ck-citizen-greeting-title" style="font-family:'Fraunces', Georgia, serif; font-size:2rem; font-weight:700; color:#0f172a; margin:0 0 4px 0; letter-spacing:-0.02em;">${greetingTime}, ${escapeHtml(firstName)}</h1>
-          <p id="ck-citizen-greeting-sub" style="font-size:0.95rem; color:#64748b; margin:0;">Here is where things stand around ${escapeHtml(displayArea)}.</p>
+    <div class="ws">
+      <header class="ws-head">
+        <div>
+          <div class="eyebrow">Your civic home</div>
+          <h1 id="ck-citizen-greeting-title">${greeting()}, ${escapeHtml(firstNameOf(user))}</h1>
+          <p id="ck-citizen-greeting-sub">Tell us what needs attention, then follow it until it is decided.</p>
         </div>
+      </header>
 
-        <!-- ══════════════════════════════════════════════════════════════
-             1. AI CIVIC ASSISTANT HERO (NO TICKER, NO COPILOT BADGE, SINGLE MIC)
-             ══════════════════════════════════════════════════════════════ -->
-        <section class="ck-agent-dark-card" id="ck-dark-cockpit" aria-label="Civic Assistant AI Chat">
+      <div class="ws-grid">
+        <div class="ws-col">
+          <section class="ck-agent-dark-card" id="ck-dark-cockpit" aria-label="Civic Assistant AI Chat">
           <div class="ck-dark-ambient"></div>
 
           <!-- Location permission bar (hidden when already granted or dismissed) -->
           <div class="ck-location-bar" id="ck-location-bar" style="display:none;">
-            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="flex-shrink:0;color:#ff5a36;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="flex-shrink:0;color:var(--primary);"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
             <span id="ck-location-bar-text" style="font-size:0.88rem;">Allow location for better results near you</span>
             <button type="button" id="ck-location-grant-btn" class="ck-location-grant-btn" style="font-size:0.84rem;">📍 Use my location</button>
             <button type="button" id="ck-location-dismiss-btn" class="ck-location-dismiss-btn" title="Dismiss" aria-label="Dismiss location bar">×</button>
@@ -564,145 +430,75 @@ async function renderCitizenDash(container, user, metaData) {
 
         </section><!-- /.ck-agent-dark-card -->
 
-        <!-- ══════════════════════════════════════════════════════════════
-             2. STATS KPI ROW (My requests | Following | Contributions)
-             ══════════════════════════════════════════════════════════════ -->
-        <div class="ck-citizen-kpi-row" style="display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:20px; margin-bottom:8px;">
-          <a href="/my-activity?tab=requests" class="ck-citizen-kpi-tile" style="background:#fff; border:1px solid #e8ecf0; border-radius:14px; padding:18px 22px; display:flex; align-items:center; gap:16px; box-shadow:0 1px 4px rgba(0,0,0,0.03); text-decoration:none; transition:all 0.15s ease;">
-            <div style="width:40px; height:40px; background:#fff4f1; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-              <svg width="19" height="19" fill="none" stroke="#ff5a36" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          <section class="ws-panel" aria-labelledby="my-requests-title">
+            <div class="ws-panel-head">
+              <div>
+                <h2 id="my-requests-title">Your requests</h2>
+                <p>${myItems.length ? `${inProgress.length} in progress · ${decided.length} approved${stopped.length ? ` · ${stopped.length} not accepted` : ''}${drafts.length ? ` · ${drafts.length} draft${drafts.length === 1 ? '' : 's'}` : ''}` : 'Everything you file appears here.'}</p>
+              </div>
+              ${myItems.length ? '<a class="ws-panel-link" href="/entities">See all</a>' : ''}
             </div>
-            <div>
-              <div style="font-size:1.85rem; font-weight:800; color:#0f172a; line-height:1.1;">${myItems.length || 7}</div>
-              <div style="font-size:0.88rem; color:#64748b; font-weight:600; margin-top:3px;">My requests</div>
+            <div class="ws-list">${requestsHtml}</div>
+          </section>
+
+          <section class="ws-panel" aria-labelledby="nearby-title">
+            <div class="ws-panel-head">
+              <div>
+                <h2 id="nearby-title">Approved near you</h2>
+                <p id="ck-around-subtitle">Public civic work within 10 km of you.</p>
+              </div>
+              <a class="ws-panel-link" href="/nearby">Open the map</a>
             </div>
-          </a>
-          <a href="/my-activity?tab=following" class="ck-citizen-kpi-tile" style="background:#fff; border:1px solid #e8ecf0; border-radius:14px; padding:18px 22px; display:flex; align-items:center; gap:16px; box-shadow:0 1px 4px rgba(0,0,0,0.03); text-decoration:none; transition:all 0.15s ease;">
-            <div style="width:40px; height:40px; background:#fff4f1; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-              <svg width="19" height="19" fill="none" stroke="#ff5a36" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
-            </div>
-            <div>
-              <div style="font-size:1.85rem; font-weight:800; color:#0f172a; line-height:1.1;">${myItems.filter(i => i.following).length || 5}</div>
-              <div style="font-size:0.88rem; color:#64748b; font-weight:600; margin-top:3px;">Following</div>
-            </div>
-          </a>
-          <a href="/my-activity?tab=contributions" class="ck-citizen-kpi-tile" style="background:#fff; border:1px solid #e8ecf0; border-radius:14px; padding:18px 22px; display:flex; align-items:center; gap:16px; box-shadow:0 1px 4px rgba(0,0,0,0.03); text-decoration:none; transition:all 0.15s ease;">
-            <div style="width:40px; height:40px; background:#fff4f1; border-radius:10px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-              <svg width="19" height="19" fill="none" stroke="#ff5a36" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            </div>
-            <div>
-              <div style="font-size:1.85rem; font-weight:800; color:#0f172a; line-height:1.1;">${myItems.filter(i => (i.entityType?.name||'').toLowerCase().includes('movement') || i.entity_type_id === 1).length || 1}</div>
-              <div style="font-size:0.88rem; color:#64748b; font-weight:600; margin-top:3px;">Contributions</div>
-            </div>
-          </a>
+            <div class="ws-list" id="ck-around-grid"></div>
+          </section>
         </div>
 
-        <!-- ══════════════════════════════════════════════════════════════
-             3. AROUND YOU (ISSUES | INITIATIVES TOGGLE, ONLY PUBLIC ACTIVE ITEMS)
-             ══════════════════════════════════════════════════════════════ -->
-        <div class="ck-rx-section-header" style="margin-top:28px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-          <div>
-            <h3 class="ck-rx-section-title" style="margin-bottom:3px; font-size:1.25rem; font-weight:700; color:#0f172a;">Around you</h3>
-            <p class="ck-rx-section-sub" id="ck-around-subtitle" style="font-size:0.88rem; color:#64748b; margin:0;">Public civic activity near ${escapeHtml(displayArea)}</p>
-          </div>
-          <div style="display:flex; align-items:center; gap:12px;">
-            <!-- Issues | Initiatives Toggle -->
-            <div class="ck-around-toggle-pill" role="tablist">
-              <button type="button" class="ck-around-toggle-btn active" id="ck-toggle-issues" role="tab" aria-selected="true">Issues</button>
-              <button type="button" class="ck-around-toggle-btn" id="ck-toggle-initiatives" role="tab" aria-selected="false">Initiatives</button>
-            </div>
-            <a href="/entities" class="ck-rx-section-link" style="font-size:0.88rem; color:#ff5a36; font-weight:700; text-decoration:none;">View all →</a>
-          </div>
-        </div>
+        <aside class="ws-col">
+          <section class="ws-panel" aria-labelledby="updates-title">
+            <div class="ws-panel-head"><div><h2 id="updates-title">Latest on your requests</h2></div></div>
+            <div class="ws-list">${updatesHtml}</div>
+          </section>
 
-        <div class="ck-rx-issues-grid" id="ck-around-grid">
-          ${renderCardGrid(finalIssues)}
-        </div>
+          <section class="ws-panel" aria-label="Civic Buzz">
+            ${renderCivicBuzzCardHtml()}
+          </section>
+        </aside>
+      </div>
+    </div>`;
 
-        <!-- ══════════════════════════════════════════════════════════════
-             4. TRENDING INITIATIVES (numbered leaderboard with backing bars)
-             ══════════════════════════════════════════════════════════════ -->
-        <div class="ck-rx-trending-panel" style="background:#fff; border:1px solid #e8ecf0; border-radius:16px; padding:22px 24px 18px; margin-top:24px; box-shadow:0 1px 4px rgba(0,0,0,0.03);">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
-            <div>
-              <h3 class="ck-rx-section-title" style="margin-bottom:3px; font-size:1.15rem; font-weight:700; color:#0f172a;">Trending initiatives</h3>
-              <p style="font-size:0.84rem; color:#94a3b8; margin:0;">Gaining citizen backing this week</p>
-            </div>
-            <a href="/initiatives" class="ck-rx-section-link" style="font-size:0.85rem; color:#ff5a36; font-weight:700; text-decoration:none; white-space:nowrap;">See all →</a>
-          </div>
-          <div class="ck-rx-trending-list" style="margin-top:14px; display:flex; flex-direction:column; gap:0;">
-            ${_getCleanTrending()}
-          </div>
-        </div>
-
-      </main><!-- /.ck-rx-main -->
-
-      <!-- ░░ RIGHT SIDEBAR (COMPACT MY REQUESTS TRACKER + CIVIC BUZZ) ░░ -->
-      <aside class="ck-rx-aside">
-
-        <!-- My Requests Tracker: User's 3 latest active requests with status pill, progress bar and stage -->
-        <div class="ck-rx-sidebar-panel ck-request-tracker-panel" style="background:#fff; border:1px solid rgba(0,0,0,0.06); border-radius:18px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,0.02); margin-bottom:18px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-            <div class="ck-rx-sidebar-heading" style="margin-bottom:0; font-size:1.05rem; font-weight:700; color:#0f172a;">My Requests</div>
-            <a href="/my-activity?tab=requests" class="ck-tracker-see-all" style="font-size:0.84rem; color:#ff5a36; font-weight:700; text-decoration:none;">See all →</a>
-          </div>
-
-          <div class="ck-request-tracker-list" style="display:flex; flex-direction:column; gap:10px;">
-            ${finalActiveRequests.map(item => {
-              const s = (item.status || '').toLowerCase();
-              const isResolved = ['approved', 'resolved', 'completed'].includes(s);
-              const progressPct = isResolved ? 95 : 55;
-              const stageLabel = item.stage || (isResolved ? 'Live initiative' : 'Coordinator review');
-              return `
-              <a href="/entities/${item.entity_id}" class="ck-tracker-item" style="display:block; text-decoration:none; padding:12px 14px; background:#fff; border:1px solid #eef2f6; border-radius:12px; transition:all 0.15s ease;">
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-                  <span style="font-size:0.92rem; font-weight:700; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; min-width:0;" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
-                  ${statusPill(item.status)}
-                </div>
-                <div style="width:100%; height:4px; background:#f1f5f9; border-radius:999px; overflow:hidden; margin:8px 0 6px;">
-                  <div style="width:${progressPct}%; height:100%; background:#ff5a36; border-radius:999px;"></div>
-                </div>
-                <div style="font-size:0.82rem; color:#94a3b8; font-weight:500;">
-                  ${stageLabel} · ${escapeHtml(formatRelativeTime(item.updated_at || item.created_at))}
-                </div>
-              </a>
-            `}).join('')}
-          </div>
-        </div>
-
-        <!-- Civic Buzz Gallery Carousel (1 slide at a time, single control set) -->
-        ${renderCivicBuzzCardHtml()}
-
-      </aside><!-- /.ck-rx-aside -->
-    </div><!-- /.ck-rx-layout -->
-  `;
-
-  // Attach Around You toggle buttons
-  const btnIssues = document.getElementById('ck-toggle-issues');
-  const btnInitiatives = document.getElementById('ck-toggle-initiatives');
-  const aroundGrid = document.getElementById('ck-around-grid');
-
-  btnIssues?.addEventListener('click', () => {
-    btnIssues.classList.add('active');
-    btnIssues.setAttribute('aria-selected', 'true');
-    btnInitiatives?.classList.remove('active');
-    btnInitiatives?.setAttribute('aria-selected', 'false');
-    if (aroundGrid) aroundGrid.innerHTML = renderCardGrid(finalIssues);
-  });
-
-  btnInitiatives?.addEventListener('click', () => {
-    btnInitiatives.classList.add('active');
-    btnInitiatives.setAttribute('aria-selected', 'true');
-    btnIssues?.classList.remove('active');
-    btnIssues?.setAttribute('aria-selected', 'false');
-    if (aroundGrid) aroundGrid.innerHTML = renderCardGrid(finalInitiatives);
-  });
+  // ── Approved work nearby: real records from the nearby endpoint, or an invitation to share location.
+  const nearbyEl = document.getElementById('ck-around-grid');
+  const paintNearby = async (loc) => {
+    if (!nearbyEl) return;
+    if (!loc) {
+      nearbyEl.innerHTML = `
+        <div class="ws-empty">
+          <strong>Share your location to see approved work around you.</strong>
+          Your location stays on this device and is only used to find nearby public records.
+          <div style="margin-top:12px;"><button type="button" class="btn btn-secondary btn-sm" id="ck-nearby-share-btn">Use my location</button></div>
+        </div>`;
+      document.getElementById('ck-nearby-share-btn')?.addEventListener('click', () => {
+        document.getElementById('ck-location-grant-btn')?.click();
+      });
+      return;
+    }
+    nearbyEl.innerHTML = '<div class="ws-empty">Looking around you…</div>';
+    const res = await apiEntities.nearby(loc.lat, loc.lng, 10).catch(() => ({ data: [] }));
+    const items = (res.data || []).slice(0, 5);
+    nearbyEl.innerHTML = items.length
+      ? items.map((i) => workRowHtml({ id: i.entity_id, title: i.name, meta: [moduleLabel(i), i.area], side: statusPillHtml(i.status), action: 'View' })).join('')
+      : '<div class="ws-empty">No approved public records within 10 km yet.</div>';
+  };
+  if (_nearbyListener) document.removeEventListener('ck:location', _nearbyListener);
+  _nearbyListener = (e) => paintNearby(e.detail);
+  document.addEventListener('ck:location', _nearbyListener);
+  // With a stored location the assistant card announces it (ck:location) and the list loads then.
+  if (!getStoredLocation()) paintNearby(null);
 
   _attachCitizenCockpitEvents(user, myItems);
   initCivicBuzzCarousel();
 }
 
-// ── Motion Text Quotes for Kinetic Typewriter ─────────────────────────────────
 const CIVIC_MOTION_QUOTES = [
   "2-foot rim-destroying pothole near FC College main gate",
   "6 dead streetlights plunging Model Colony into pitch darkness",
@@ -736,8 +532,8 @@ function _attachCitizenCockpitEvents(user, myItems) {
     const shortArea = loc.area ? loc.area.split(',')[0].trim() : 'your area';
     // Update greeting & subtitle
     const greetingSub = document.getElementById('ck-citizen-greeting-sub');
-    if (greetingSub) greetingSub.textContent = `Here is where things stand around ${shortArea}.`;
-    if (aroundSubtitle) aroundSubtitle.textContent = `Public civic activity near ${shortArea}`;
+    void greetingSub;
+    if (aroundSubtitle) aroundSubtitle.textContent = `Public civic work within 10 km of ${shortArea}.`;
     // Update banner to show granted state briefly then hide
     if (locationBar) {
       locationBar.classList.add('ck-location-active');
@@ -746,29 +542,8 @@ function _attachCitizenCockpitEvents(user, myItems) {
       if (locationDismBtn) locationDismBtn.style.display = 'none';
       setTimeout(() => { locationBar.style.display = 'none'; }, 3000);
     }
-    // Re-fetch Around-you with real coords
-    const grid = document.getElementById('ck-around-grid');
-    if (grid) {
-      apiEntities.nearby(loc.lat, loc.lng, 10)
-        .then(res => {
-          const isActive = i => !['draft','closed','rejected','deleted'].includes((i.status||'').toLowerCase());
-          const items = (res.data || []).filter(isActive).slice(0, 6);
-          if (items.length >= 2) {
-            // re-render currently active tab
-            const issuesBtn = document.getElementById('ck-toggle-issues');
-            const isIssuesTab = issuesBtn && issuesBtn.classList.contains('active');
-            const isInit = i => {
-              const t = (i.entityType?.name||'').toLowerCase();
-              return t.includes('movement') || t.includes('initiative') || i.entity_type_id === 1;
-            };
-            const filtered = isIssuesTab ? items.filter(x => !isInit(x)) : items.filter(isInit);
-            if (filtered.length > 0) {
-              // minimal card re-render (just update subtitle, full re-render on next nav)
-            }
-          }
-        })
-        .catch(() => {});
-    }
+    // Tell the page the location is known, so it can load what is nearby.
+    document.dispatchEvent(new CustomEvent('ck:location', { detail: loc }));
   }
 
   // Show banner if no location yet and not dismissed
@@ -786,7 +561,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
       const loc = await requestLocation();
       _applyLocationToUI(loc);
     } catch (e) {
-      if (locationBarText) locationBarText.textContent = 'Location access denied. Using default area.';
+      if (locationBarText) locationBarText.textContent = 'Location access was not granted.';
       if (locationGrantBtn) locationGrantBtn.style.display = 'none';
       setTimeout(() => { if (locationBar) locationBar.style.display = 'none'; }, 2500);
     }
@@ -964,7 +739,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
           <svg width="14" height="14" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
         </div>
         <div class="ck-dark-bubble-agent" style="display:flex; align-items:center; gap:8px; padding:10px 16px;">
-          <span style="font-size:0.8rem; font-weight:600; color:#ff7d5c;">Civic Assistant analyzing</span>
+          <span style="font-size:0.8rem; font-weight:600; color:var(--primary-500);">Civic Assistant analyzing</span>
           <div class="agent-thinking-dots" style="padding:0;"><span></span><span></span><span></span></div>
         </div>
       </div>
@@ -1166,234 +941,340 @@ function _attachCitizenCockpitEvents(user, myItems) {
 }
 
 
-function _blendWithCleanDemo(existing) {
-  const defaults = [
-    { entity_id: 1204, name: 'Garbage not collected near FC Road', area: 'FC Road, Shivajinagar', status: 'coordinator_approved' },
-    { entity_id: 1207, name: 'Broken streetlights on JM Road', area: 'JM Road, Shivajinagar', status: 'coordinator_approved' },
-    { entity_id: 638,  name: 'Shivajinagar Tree Plantation & Clean Air Drive', area: 'Ward 14 · Shivajinagar', status: 'approved' },
-    { entity_id: 639,  name: 'Pothole and damaged asphalt near Karve Statue', area: 'Karve Road, Shivajinagar', status: 'coordinator_approved' }
-  ];
-  const combined = [...existing];
-  for (const d of defaults) {
-    if (combined.length >= 4) break;
-    if (!combined.some(c => c.name === d.name || c.entity_id === d.entity_id)) {
-      combined.push(d);
-    }
-  }
-  return combined;
-}
+// ════════════════════════════════════════════════════════════════════════════
+// AREA COORDINATOR — verify what citizens in my ward have filed.
+// One job: work through the records waiting for me, oldest first.
+// ════════════════════════════════════════════════════════════════════════════
+async function renderCoordinatorAreaDash(container, user) {
+  const ward = user.assignedArea || '';
+  const [queue, wardRes] = await Promise.all([
+    loadMyQueue(),
+    ward ? apiEntities.list({ area: ward, limit: 100 }).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+  ]);
+  const wardItems = wardRes.data || [];
+  const queueIds = new Set(queue.map((q) => q.entity_id));
+  const others = wardItems.filter((i) => !queueIds.has(i.entity_id) && String(i.status || '').toLowerCase() !== 'draft');
+  const count = (statuses) => wardItems.filter((i) => statuses.includes(String(i.status || '').toLowerCase())).length;
 
-function _getCleanTrending() {
-  const MAX_COUNT = 70;
-  const items = [
-    { rank: '01', name: 'Kothrud Green Corridor Tree Plantation', area: 'Ward 9 · Kothrud', count: 64 },
-    { rank: '02', name: 'FC Road Pedestrian Safety & Zebra Crossings', area: 'Ward 14 · Shivajinagar', count: 52 },
-    { rank: '03', name: 'Baner Wet-Waste Decentralized Composting', area: 'Ward 2 · Baner', count: 41 },
-  ];
-
-  return items.map((item, idx) => {
-    const pct = Math.round((item.count / MAX_COUNT) * 100);
-    const borderStyle = idx < items.length - 1 ? 'border-bottom:1px solid #f1f5f9;' : '';
-    return `
-    <div class="ck-rx-trending-row" style="display:flex; align-items:center; gap:14px; padding:12px 0; ${borderStyle}">
-      <span class="ck-rx-trending-num" style="font-family:'Fraunces', Georgia, serif; font-size:1.25rem; font-weight:800; color:#e65100; min-width:32px; flex-shrink:0;">${item.rank}</span>
-      <div class="ck-rx-trending-info" style="flex:1; min-width:0;">
-        <div class="ck-rx-trending-name" style="font-size:0.95rem; font-weight:700; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.name}</div>
-        <div class="ck-rx-trending-sub" style="font-size:0.84rem; color:#94a3b8; margin-top:2px;">${item.area}</div>
-      </div>
-      <div style="text-align:right; flex-shrink:0; min-width:90px;">
-        <div style="font-size:0.84rem; font-weight:600; color:#64748b; margin-bottom:4px;">${item.count} backing</div>
-        <div style="width:90px; height:5px; background:#f1f5f9; border-radius:999px; overflow:hidden;">
-          <div style="width:${pct}%; height:100%; background:#ff5a36; border-radius:999px;"></div>
-        </div>
-      </div>
-    </div>
-  `}).join('');
-}
-
-
-async function renderCoordinatorAreaDash(container, user, metaData) {
-  const area = user.assignedArea;
-  const res = await apiEntities.list({ status: 'submitted', area: area, limit: 10 });
-  const pending = res.data || [];
-  
   container.innerHTML = `
-    <div class="alert alert-info mb-6" style="display:flex; justify-content:space-between; align-items:center;">
-      <div><strong>Jurisdiction Area:</strong> ${escapeHtml(area || 'Sector 5')}</div>
-      <span class="badge badge-primary">Area Coordinator</span>
-    </div>
-
-    <div class="kpi-row mb-6">
-      <div class="kpi-item accent-amber">
-        <div class="kpi-num">${res.pagination?.total || pending.length}</div>
-        <div class="kpi-label">Pending Area Verification</div>
-      </div>
-    </div>
-
-    <div class="card mb-6">
-      <div class="card-header border-b" style="display:flex; justify-content:space-between; align-items:center;">
+    <div class="ws">
+      <header class="ws-head">
         <div>
-          <div class="card-title">Cases Requiring Action</div>
-          <div class="card-subtitle">Submitted cases in ${escapeHtml(area || 'Sector 5')} awaiting verification</div>
+          <div class="eyebrow">Area coordinator${ward ? ` · ${escapeHtml(ward)}` : ''}</div>
+          <h1>${greeting()}, ${escapeHtml(firstNameOf(user))}</h1>
+          <p>${ward
+            ? `You verify what citizens in ${escapeHtml(ward)} file, and pass it to the director or send it back with a reason.`
+            : 'No ward is assigned to your account yet, so nothing can be routed to you. Ask an administrator to assign one.'}</p>
         </div>
-        <div style="display:flex;gap:12px;">
-          <a href="/entities?status=submitted" class="btn btn-link btn-sm">View Queue</a>
-          <a href="/buzz?tab=review" class="btn btn-link btn-sm">Civic Buzz review</a>
+      </header>
+
+      ${focusHtml({
+        count: queue.length,
+        waitingTitle: `${queue.length === 1 ? 'record is' : 'records are'} waiting for your review`,
+        waitingText: 'Start with the one that has waited longest.',
+        clearTitle: 'Nothing is waiting for you',
+        clearText: ward ? `Every record filed in ${ward} has been reviewed.` : 'No ward assigned.',
+        nextId: queue[0]?.entity_id,
+      })}
+
+      <div class="ws-grid">
+        <div class="ws-col">
+          <section class="ws-panel" aria-labelledby="queue-title">
+            <div class="ws-panel-head">
+              <div><h2 id="queue-title">Waiting for you</h2><p>Oldest first. Open a record to verify or reject it.</p></div>
+            </div>
+            <div class="ws-list">
+              ${queue.length ? queue.map(queueRowHtml).join('') : '<div class="ws-empty"><strong>All caught up.</strong>New submissions from your ward appear here and in the bell.</div>'}
+            </div>
+          </section>
+
+          <section class="ws-panel" aria-labelledby="ward-title-h">
+            <div class="ws-panel-head">
+              <div><h2 id="ward-title-h">Your ward at a glance</h2><p>${ward ? `Every record in ${escapeHtml(ward)}.` : ''}</p></div>
+              ${ward ? `<a class="ws-panel-link" href="/entities?area=${encodeURIComponent(ward)}">All ward records</a>` : ''}
+            </div>
+            <div class="ws-facts">
+              ${factHtml(queue.length, 'Waiting for you')}
+              ${factHtml(count(['coordinator_approved']), 'With the director')}
+              ${factHtml(count(['approved']), 'Approved')}
+              ${factHtml(count(['rejected']), 'Sent back')}
+            </div>
+            <div class="ws-list">
+              ${others.slice(0, 5).map((i) => workRowHtml({ id: i.entity_id, title: i.name, meta: [moduleLabel(i), i.owner?.name ? `from ${i.owner.name}` : ''], side: statusPillHtml(i.status) })).join('')}
+            </div>
+          </section>
         </div>
+
+        <aside class="ws-col">
+          <section class="ws-panel" aria-label="Shortcuts">
+            <div class="ws-panel-head"><div><h2>Shortcuts</h2></div></div>
+            <div class="ws-actions">
+              ${ward ? actionHtml(`/entities?area=${encodeURIComponent(ward)}`, ICON.list, 'Ward records', `Everything filed in ${ward}`) : ''}
+              ${actionHtml('/buzz?tab=review', ICON.buzz, 'Civic Buzz review', 'Posts waiting for moderation')}
+              ${actionHtml('/reports', ICON.chart, 'Reports', 'Counts by status and area, with export')}
+            </div>
+          </section>
+        </aside>
       </div>
-      ${renderRecentTable(pending, true)}
-    </div>
-  `;
+    </div>`;
 }
 
-async function renderCoordinatorGeneralDash(container, user, metaData) {
-  const res = await apiEntities.list({ status: 'submitted', area: 'Unassigned', limit: 10 });
-  const pending = res.data || [];
-  
+// ════════════════════════════════════════════════════════════════════════════
+// GENERAL COORDINATOR — the safety net for records that belong to no ward.
+// ════════════════════════════════════════════════════════════════════════════
+async function renderCoordinatorGeneralDash(container, user) {
+  const [queue, allRes] = await Promise.all([
+    loadMyQueue(),
+    apiEntities.list({ limit: 100 }).catch(() => ({ data: [] })),
+  ]);
+  const isUnassigned = (i) => { const a = String(i.area || '').trim().toLowerCase(); return a === '' || a === 'unassigned'; };
+  const mine = (allRes.data || []).filter(isUnassigned).filter((i) => i.owner_user_id);
+  const queueIds = new Set(queue.map((q) => q.entity_id));
+  const others = mine.filter((i) => !queueIds.has(i.entity_id) && String(i.status || '').toLowerCase() !== 'draft');
+  const count = (statuses) => mine.filter((i) => statuses.includes(String(i.status || '').toLowerCase())).length;
+
   container.innerHTML = `
-    <div class="alert alert-info mb-6" style="display:flex; justify-content:space-between; align-items:center;">
-      <div><strong>Operational Scope:</strong> General Coordinator (Handling Unassigned Areas & Escalations)</div>
-      <span class="badge badge-primary">General Operations</span>
-    </div>
-
-    <div class="kpi-row mb-6">
-      <div class="kpi-item accent-amber">
-        <div class="kpi-num">${res.pagination?.total || pending.length}</div>
-        <div class="kpi-label">Unassigned Cases Awaiting Review</div>
-      </div>
-    </div>
-
-    <div class="card mb-6">
-      <div class="card-header border-b" style="display:flex; justify-content:space-between; align-items:center;">
+    <div class="ws">
+      <header class="ws-head">
         <div>
-          <div class="card-title">Cases Requiring Action</div>
-          <div class="card-subtitle">Unassigned cases awaiting coordinator review</div>
+          <div class="eyebrow">General coordinator · records with no ward</div>
+          <h1>${greeting()}, ${escapeHtml(firstNameOf(user))}</h1>
+          <p>Records filed without a ward have no area coordinator. They come to you, so that nothing a citizen files is left unanswered.</p>
         </div>
-        <div style="display:flex;gap:12px;">
-          <a href="/entities?status=submitted" class="btn btn-link btn-sm">View Queue</a>
-          <a href="/buzz?tab=review" class="btn btn-link btn-sm">Civic Buzz review</a>
+      </header>
+
+      ${focusHtml({
+        count: queue.length,
+        waitingTitle: `${queue.length === 1 ? 'record with no ward is' : 'records with no ward are'} waiting for your review`,
+        waitingText: 'Start with the one that has waited longest.',
+        clearTitle: 'Nothing is waiting for you',
+        clearText: 'Every record without a ward has been reviewed.',
+        nextId: queue[0]?.entity_id,
+      })}
+
+      <div class="ws-grid">
+        <div class="ws-col">
+          <section class="ws-panel" aria-labelledby="gq-title">
+            <div class="ws-panel-head"><div><h2 id="gq-title">Waiting for you</h2><p>Oldest first. Open a record to verify or reject it.</p></div></div>
+            <div class="ws-list">
+              ${queue.length ? queue.map(queueRowHtml).join('') : '<div class="ws-empty"><strong>All caught up.</strong>A record reaches you only when it has no ward. Records with a ward go to that ward\'s coordinator.</div>'}
+            </div>
+          </section>
+
+          <section class="ws-panel" aria-labelledby="gu-title">
+            <div class="ws-panel-head"><div><h2 id="gu-title">Records with no ward</h2><p>What has happened to the ones already reviewed.</p></div></div>
+            <div class="ws-facts">
+              ${factHtml(queue.length, 'Waiting for you')}
+              ${factHtml(count(['coordinator_approved']), 'With the director')}
+              ${factHtml(count(['approved']), 'Approved')}
+              ${factHtml(count(['rejected']), 'Sent back')}
+            </div>
+            <div class="ws-list">
+              ${others.slice(0, 5).map((i) => workRowHtml({ id: i.entity_id, title: i.name, meta: [moduleLabel(i), i.owner?.name ? `from ${i.owner.name}` : ''], side: statusPillHtml(i.status) })).join('')}
+            </div>
+          </section>
         </div>
+
+        <aside class="ws-col">
+          <section class="ws-panel" aria-label="Shortcuts">
+            <div class="ws-panel-head"><div><h2>Shortcuts</h2></div></div>
+            <div class="ws-actions">
+              ${actionHtml('/entities', ICON.list, 'All records', 'Browse every module and ward')}
+              ${actionHtml('/buzz?tab=review', ICON.buzz, 'Civic Buzz review', 'Posts waiting for moderation')}
+              ${actionHtml('/reports', ICON.chart, 'Reports', 'Counts by status and area, with export')}
+            </div>
+          </section>
+        </aside>
       </div>
-      ${renderRecentTable(pending, true)}
-    </div>
-  `;
+    </div>`;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// DIRECTOR — give the final decision, and see the whole picture.
+// ════════════════════════════════════════════════════════════════════════════
 async function renderDirectorDash(container, user, metaData) {
-  const res = await apiEntities.list({ status: 'coordinator_approved', limit: 10 });
-  const pending = res.data || [];
-  
+  const [queue, withCoordinators] = await Promise.all([
+    loadMyQueue(),
+    apiEntities.list({ status: 'submitted', limit: 1 }).catch(() => ({ pagination: { total: 0 } })),
+  ]);
+
+  // Group the decisions by module, so a busy module does not bury the others.
+  const modules = [...new Set(queue.map((q) => q.entity_type))];
+  let activeModule = null;
+  const rowsFor = (name) => queue.filter((q) => !name || q.entity_type === name);
+
   container.innerHTML = `
-    <div class="kpi-row mb-6">
-      <div class="kpi-item accent-amber">
-        <div class="kpi-num">${res.pagination?.total || pending.length}</div>
-        <div class="kpi-label">Pending Executive Approval</div>
-      </div>
-    </div>
-
-    <div class="card mb-6">
-      <div class="card-header border-b" style="display:flex; justify-content:space-between; align-items:center;">
+    <div class="ws">
+      <header class="ws-head">
         <div>
-          <div class="card-title">Executive Approval Queue</div>
-          <div class="card-subtitle">Coordinator-approved cases awaiting final executive sign-off</div>
+          <div class="eyebrow">Director · final approval</div>
+          <h1>${greeting()}, ${escapeHtml(firstNameOf(user))}</h1>
+          <p>Coordinators have verified these. Your decision is the last step, and it can start follow-up records automatically.</p>
         </div>
-        <a href="/entities?status=coordinator_approved" class="btn btn-link btn-sm">View Full Queue</a>
-      </div>
-      ${renderRecentTable(pending, true)}
-    </div>
+      </header>
 
-    <div id="ward-activity-widget"></div>
-  `;
+      ${focusHtml({
+        count: queue.length,
+        waitingTitle: `${queue.length === 1 ? 'decision is' : 'decisions are'} waiting for you`,
+        waitingText: `${withCoordinators.pagination?.total || 0} more ${(withCoordinators.pagination?.total || 0) === 1 ? 'record is' : 'records are'} still with coordinators.`,
+        clearTitle: 'No decisions are waiting',
+        clearText: `${withCoordinators.pagination?.total || 0} ${(withCoordinators.pagination?.total || 0) === 1 ? 'record is' : 'records are'} still with coordinators.`,
+        nextId: queue[0]?.entity_id,
+        nextLabel: 'Decide next',
+      })}
+
+      <div class="ws-grid">
+        <div class="ws-col">
+          <section class="ws-panel" aria-labelledby="dq-title">
+            <div class="ws-panel-head">
+              <div><h2 id="dq-title">Waiting for your decision</h2><p>Oldest first.</p></div>
+            </div>
+            ${modules.length > 1 ? `
+              <div class="ws-chips" role="tablist" aria-label="Filter by module" id="dq-chips">
+                <button type="button" class="ws-chip is-on" role="tab" aria-selected="true" data-module="">All <span>${queue.length}</span></button>
+                ${modules.map((m) => `<button type="button" class="ws-chip" role="tab" aria-selected="false" data-module="${escapeHtml(m)}">${escapeHtml(moduleLabelFromName(m))} <span>${rowsFor(m).length}</span></button>`).join('')}
+              </div>` : ''}
+            <div class="ws-list" id="dq-list"></div>
+          </section>
+
+          <div id="ward-activity-widget"></div>
+        </div>
+
+        <aside class="ws-col">
+          <section class="ws-panel" aria-label="Oversight">
+            <div class="ws-panel-head"><div><h2>Oversight</h2></div></div>
+            <div class="ws-actions">
+              ${actionHtml('/governance', ICON.shield, 'Governance Intelligence', 'Control gaps and process health')}
+              ${actionHtml('/reports', ICON.chart, 'Reports', 'Run and export to PDF or Excel')}
+              ${actionHtml('/entities', ICON.list, 'All records', 'Every module and ward')}
+              ${actionHtml('/modules', ICON.graph, 'Modules and rules', `${metaData.entityTypes?.length || 0} modules, ${metaData.rules?.length || 0} rules`)}
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>`;
+
+  const listEl = document.getElementById('dq-list');
+  const paint = () => {
+    const rows = rowsFor(activeModule);
+    const shown = rows.slice(0, 8);
+    listEl.innerHTML = rows.length
+      ? shown.map(queueRowHtml).join('') + (rows.length > shown.length ? `<div class="ws-empty">${rows.length - shown.length} more. They move up as you decide these.</div>` : '')
+      : '<div class="ws-empty"><strong>All caught up.</strong>Records appear here once a coordinator has verified them.</div>';
+  };
+  document.getElementById('dq-chips')?.addEventListener('click', (e) => {
+    const chip = e.target.closest('.ws-chip');
+    if (!chip) return;
+    activeModule = chip.getAttribute('data-module') || null;
+    document.querySelectorAll('#dq-chips .ws-chip').forEach((c) => {
+      const on = c === chip;
+      c.classList.toggle('is-on', on);
+      c.setAttribute('aria-selected', String(on));
+    });
+    paint();
+  });
+  paint();
   mountWardActivity(document.getElementById('ward-activity-widget'));
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// ADMIN — look after the platform itself: modules, rules and people.
+// ════════════════════════════════════════════════════════════════════════════
 async function renderAdminDash(container, user, metaData) {
-  const [total, submitted, approved] = await Promise.all([
-    apiEntities.list({ limit: 1 }),
-    apiEntities.list({ status: 'submitted', limit: 1 }),
-    apiEntities.list({ status: 'approved', limit: 1 }),
+  const [queue, totalRes, usersRes] = await Promise.all([
+    loadMyQueue(),
+    apiEntities.list({ limit: 1 }).catch(() => ({ pagination: { total: 0 } })),
+    apiAdmin.listUsers({ limit: 500 }).catch(() => ({ data: [] })),
   ]);
-  
+  const modules = metaData.entityTypes || [];
+  const rules = metaData.rules || [];
+  const users = usersRes.data || [];
+  const roleCount = (role) => users.filter((u) => u.role === role).length;
+  const unassignedCoordinators = users.filter((u) => u.role === 'coordinator_area' && !String(u.assignedArea || u.assigned_area || '').trim());
+
+  const moduleRows = [...modules]
+    .sort((a, b) => (b._count?.entities || 0) - (a._count?.entities || 0))
+    .map((t) => {
+      const pres = getCapabilityPresentation(t);
+      const out = rules.filter((r) => r.source_entity_type_id === t.entity_type_id).length;
+      const records = t._count?.entities || 0;
+      return `
+        <a class="ws-item" href="/entities?entity_type_id=${Number(t.entity_type_id)}">
+          <span style="min-width:0;">
+            <span class="ws-item-title">${escapeHtml(pres.shortTitle || t.name)}</span>
+            <span class="ws-item-meta"><span>${records} record${records === 1 ? '' : 's'}</span>${out ? `<span>${out} rule${out === 1 ? '' : 's'}</span>` : ''}${t.domain?.domain_name ? `<span>${escapeHtml(t.domain.domain_name)}</span>` : ''}</span>
+          </span>
+          <span class="ws-item-side"><span class="ws-item-go">Records ${ICON.arrow}</span></span>
+        </a>`;
+    }).join('');
+
   container.innerHTML = `
-    <div class="kpi-row mb-6">
-      <div class="kpi-item accent-blue">
-        <div class="kpi-num">${total.pagination?.total || 0}</div>
-        <div class="kpi-label">Total System Cases</div>
-      </div>
-      <div class="kpi-item accent-amber">
-        <div class="kpi-num">${submitted.pagination?.total || 0}</div>
-        <div class="kpi-label">In Workflow</div>
-      </div>
-      <div class="kpi-item accent-green">
-        <div class="kpi-num">${approved.pagination?.total || 0}</div>
-        <div class="kpi-label">Approved & Active</div>
-      </div>
-    </div>
-
-    <div class="card mb-6">
-      <div class="card-header">
-        <div class="card-title">Civic OS Administration & Module Deployment</div>
-      </div>
-      <div class="card-body p-6">
-        <p class="mb-4 text-secondary">
-          As a Platform Administrator, you can deploy new civic capability modules via No-Code metadata generation, manage users, and review platform accountability logs.
-        </p>
-        <div class="flex gap-3">
-          <a href="/module-builder" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:8px;">
-            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
-            No-Code Module Builder
-          </a>
-          <a href="/admin" class="btn btn-secondary">User & Role Admin</a>
-          <a href="/reports" class="btn btn-secondary">Governance Reports</a>
+    <div class="ws">
+      <header class="ws-head">
+        <div>
+          <div class="eyebrow">Administrator · platform</div>
+          <h1>${greeting()}, ${escapeHtml(firstNameOf(user))}</h1>
+          <p>You look after the platform itself: the modules citizens can use, the rules that link them, and who holds which role.</p>
         </div>
-      </div>
-    </div>
-  `;
-}
+        <div class="ws-head-actions">
+          <a class="btn btn-primary" href="/module-builder">Build a module</a>
+        </div>
+      </header>
 
-function renderRecentTable(items, showOwner = false) {
-  if (!items || items.length === 0) {
-    return `
-      <div class="table-empty" style="padding:32px; text-align:center; color:var(--text-muted);">
-        <p style="font-size:0.9rem; font-weight:500;">No active cases in this view.</p>
+      <section class="ws-panel" aria-label="Platform at a glance">
+        <div class="ws-facts" style="border-top:0;">
+          ${factHtml(modules.length, 'Modules', '/modules')}
+          ${factHtml(rules.length, 'Rules linking them', '/modules')}
+          ${factHtml(users.length, 'People', '/admin')}
+          ${factHtml(totalRes.pagination?.total || 0, 'Records', '/entities')}
+        </div>
+      </section>
+
+      ${unassignedCoordinators.length ? `
+        <div class="alert alert-warning" role="status">
+          <strong>${unassignedCoordinators.length} area coordinator${unassignedCoordinators.length === 1 ? ' has' : 's have'} no ward.</strong>
+          Nothing can be routed to them until one is assigned. <a href="/admin">Assign a ward</a>
+        </div>` : ''}
+
+      <div class="ws-grid">
+        <div class="ws-col">
+          <section class="ws-panel" aria-labelledby="am-title">
+            <div class="ws-panel-head">
+              <div><h2 id="am-title">Modules</h2><p>Each one is configuration: a form, a workflow and optional rules.</p></div>
+              <a class="ws-panel-link" href="/modules">See how they are linked</a>
+            </div>
+            <div class="ws-list">${moduleRows || '<div class="ws-empty"><strong>No modules yet.</strong>Build the first one with the module builder.</div>'}</div>
+          </section>
+
+          ${queue.length ? `
+          <section class="ws-panel" aria-labelledby="aq-title">
+            <div class="ws-panel-head"><div><h2 id="aq-title">Waiting for a final decision</h2><p>As an administrator you can also give final approval.</p></div></div>
+            <div class="ws-list">${queue.slice(0, 5).map(queueRowHtml).join('')}${queue.length > 5 ? `<div class="ws-empty">${queue.length - 5} more.</div>` : ''}</div>
+          </section>` : ''}
+        </div>
+
+        <aside class="ws-col">
+          <section class="ws-panel" aria-labelledby="ap-title">
+            <div class="ws-panel-head">
+              <div><h2 id="ap-title">People</h2></div>
+              <a class="ws-panel-link" href="/admin">Manage</a>
+            </div>
+            <div class="ws-list">
+              ${[['citizen', 'Citizens'], ['coordinator_area', 'Area coordinators'], ['coordinator_general', 'General coordinators'], ['director', 'Directors'], ['admin', 'Administrators']]
+                .map(([role, label]) => `<div class="ws-item" style="padding-top:11px; padding-bottom:11px;"><span class="ws-item-title" style="font-weight:500;">${label}</span><span class="ws-item-side"><strong>${roleCount(role)}</strong></span></div>`).join('')}
+            </div>
+          </section>
+
+          <section class="ws-panel" aria-label="Tools">
+            <div class="ws-panel-head"><div><h2>Tools</h2></div></div>
+            <div class="ws-actions">
+              ${actionHtml('/module-builder', ICON.build, 'Module builder', 'Form, workflow, rule and report, no code')}
+              ${actionHtml('/admin', ICON.users, 'Users and roles', 'Change a role or assign a ward')}
+              ${actionHtml('/governance', ICON.shield, 'Governance Intelligence', 'Control gaps and process health')}
+              ${actionHtml('/reports', ICON.chart, 'Reports', 'Run and export')}
+            </div>
+          </section>
+        </aside>
       </div>
-    `;
-  }
-  
-  const rows = items.map(item => `
-    <tr>
-      <td><a href="/entities/${item.entity_id}" class="text-link font-medium">#${item.entity_id}</a></td>
-      <td>
-        <a href="/entities/${item.entity_id}" style="color:var(--text-primary); text-decoration:none; font-weight:600;">
-          ${escapeHtml(item.name)}
-        </a>
-      </td>
-      <td><span class="badge badge-secondary">${escapeHtml(item.entityType?.name || 'Capability')}</span></td>
-      ${showOwner ? `<td>${escapeHtml(item.owner?.name || 'System')}</td>` : ''}
-      <td>${escapeHtml(item.area || '—')}</td>
-      <td><span class="badge badge-${item.status}">${formatStatusLabel(item.status)}</span></td>
-      <td><a href="/entities/${item.entity_id}" class="btn btn-secondary btn-sm">Review →</a></td>
-    </tr>
-  `).join('');
-  
-  return `
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Case / Request Title</th>
-            <th>Capability Type</th>
-            ${showOwner ? '<th>Submitted By</th>' : ''}
-            <th>Area</th>
-            <th>Status</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    </div>
-  `;
+    </div>`;
 }

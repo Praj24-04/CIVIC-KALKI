@@ -109,7 +109,7 @@ export async function renderEntities(params = {}, searchParams = null) {
         <p id="entities-header-subtitle">${escapeHtml(pageSubtitleText)}</p>
       </div>
       <div class="page-header-actions">
-        <a href="/entities/new${currentParams.entity_type_id ? `?entity_type_id=${currentParams.entity_type_id}` : ''}" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:6px; background:#ff5a36; border-color:#ff5a36;">
+        <a href="/entities/new${currentParams.entity_type_id ? `?entity_type_id=${currentParams.entity_type_id}` : ''}" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:6px; background:var(--primary); border-color:var(--primary);">
           <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
           ${isInitiativeQuery ? 'Start New Initiative' : 'Start Civic Action'}
         </a>
@@ -119,10 +119,10 @@ export async function renderEntities(params = {}, searchParams = null) {
     ${isCitizen && !isInitiativeQuery ? `
       <!-- My Activity Tabs: Requests, Following, Contributions, Drafts -->
       <div class="ck-activity-tabs-wrap" style="display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;">
-        <a href="/entities?tab=requests" class="btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border-radius:20px; font-weight:700; padding:6px 16px; ${activeTab === 'requests' ? 'background:#ff5a36; border-color:#ff5a36;' : ''}">Requests</a>
-        <a href="/entities?tab=following" class="btn ${activeTab === 'following' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border-radius:20px; font-weight:700; padding:6px 16px; ${activeTab === 'following' ? 'background:#ff5a36; border-color:#ff5a36;' : ''}">Following</a>
-        <a href="/entities?tab=contributions" class="btn ${activeTab === 'contributions' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border-radius:20px; font-weight:700; padding:6px 16px; ${activeTab === 'contributions' ? 'background:#ff5a36; border-color:#ff5a36;' : ''}">Contributions</a>
-        <a href="/entities?tab=drafts" class="btn ${activeTab === 'drafts' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border-radius:20px; font-weight:700; padding:6px 16px; ${activeTab === 'drafts' ? 'background:#ff5a36; border-color:#ff5a36;' : ''}">Drafts</a>
+        <a href="/entities?tab=requests" class="btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border-radius:20px; font-weight:700; padding:6px 16px; ${activeTab === 'requests' ? 'background:var(--primary); border-color:var(--primary);' : ''}">Requests</a>
+        <a href="/entities?tab=following" class="btn ${activeTab === 'following' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border-radius:20px; font-weight:700; padding:6px 16px; ${activeTab === 'following' ? 'background:var(--primary); border-color:var(--primary);' : ''}">Following</a>
+        <a href="/entities?tab=contributions" class="btn ${activeTab === 'contributions' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border-radius:20px; font-weight:700; padding:6px 16px; ${activeTab === 'contributions' ? 'background:var(--primary); border-color:var(--primary);' : ''}">Contributions</a>
+        <a href="/entities?tab=drafts" class="btn ${activeTab === 'drafts' ? 'btn-primary' : 'btn-secondary'} btn-sm" style="border-radius:20px; font-weight:700; padding:6px 16px; ${activeTab === 'drafts' ? 'background:var(--primary); border-color:var(--primary);' : ''}">Drafts</a>
       </div>
     ` : ''}
     
@@ -365,7 +365,7 @@ async function loadBuzzDrafts() {
       <div class="ck-buzz-drafts-card">
         <div class="ck-buzz-drafts-header">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span style="display:inline-flex; align-items:center; color:#ff5a36;">${BI.draft(22, '#ff5a36')}</span>
+            <span style="display:inline-flex; align-items:center; color:var(--primary);">${BI.draft(22, 'var(--primary)')}</span>
             <div>
               <h3 style="font-size:1.05rem; font-weight:800; color:#0f172a; margin:0;">
                 My Civic Buzz Drafts (${drafts.length})

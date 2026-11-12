@@ -409,7 +409,7 @@ export async function renderAgentChat(params = {}, searchParams = null) {
       }
       .agent-chat-avatar-wrap {
         width:38px;height:38px;border-radius:50%;
-        background:linear-gradient(135deg,#ff5a36,#e03c22);
+        background:linear-gradient(135deg,var(--primary),#e03c22);
         display:flex;align-items:center;justify-content:center;flex-shrink:0;
       }
       #agent-thread {
@@ -475,7 +475,7 @@ export async function renderAgentChat(params = {}, searchParams = null) {
         line-height:1.55; word-break:break-word;
       }
       .agent-bubble-user {
-        background:linear-gradient(135deg,#ff5a36,#e03c22);
+        background:linear-gradient(135deg,var(--primary),#e03c22);
         color:white; border-bottom-right-radius:4px;
       }
       .agent-bubble-agent {
@@ -484,7 +484,7 @@ export async function renderAgentChat(params = {}, searchParams = null) {
       }
       .agent-bubble-avatar {
         width:28px;height:28px;border-radius:50%;flex-shrink:0;margin-top:2px;
-        background:linear-gradient(135deg,#ff5a36,#e03c22);
+        background:linear-gradient(135deg,var(--primary),#e03c22);
         display:flex;align-items:center;justify-content:center;
       }
 
@@ -530,7 +530,7 @@ export async function renderAgentChat(params = {}, searchParams = null) {
         padding:5px 0; border-bottom:1px solid var(--border);
       }
       .agent-confirm-file-row {
-        background: rgba(255, 90, 54, 0.05); padding: 6px 8px; border-radius: 6px;
+        background: rgba(var(--primary-rgb), 0.05); padding: 6px 8px; border-radius: 6px;
       }
       .agent-confirm-row:last-child { border-bottom:none; }
       .agent-confirm-label { font-weight:600; color:var(--text-secondary); min-width:130px; flex-shrink:0; }
@@ -560,7 +560,7 @@ export async function renderAgentChat(params = {}, searchParams = null) {
         </div>
         <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
           <div id="agent-loc-status" style="display:none; font-size:0.72rem; color:var(--text-muted); align-items:center; gap:4px;">
-            <svg width="11" height="11" fill="none" stroke="#ff5a36" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <svg width="11" height="11" fill="none" stroke="var(--primary)" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
             <span id="agent-loc-text"></span>
           </div>
           <button type="button" id="agent-loc-btn" class="btn btn-ghost btn-sm" title="Share your location for better help" style="font-size:0.72rem; padding:4px 10px; display:none;">

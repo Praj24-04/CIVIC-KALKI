@@ -1,4 +1,8 @@
+// Fonts are bundled with the app so the interface looks the same with no network.
+import '@fontsource-variable/inter';
+import '@fontsource-variable/fraunces';
 import './style.css';
+import './theme.css';
 import 'leaflet/dist/leaflet.css';
 import { initRouter, addRoute, onNotFound } from './router.js';
 import { initAuth } from './auth.js';
