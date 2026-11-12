@@ -105,93 +105,74 @@ export function renderHome() {
       </header>
 
       <!-- ═══════════ HERO ═══════════ -->
-      <section class="ck-home-hero">
+      <section class="ck-home-hero ck-hero2">
+        <div class="ck-hero2-inner">
+          <div class="ck-hero2-copy">
+            <div class="ck-hero-pill">
+              <span class="ck-hero-pill-dot"></span>
+              One civic operating system
+            </div>
 
-        <!-- Floating playful badges with professional SVGs -->
-        <div class="ck-hero-float ck-float-1" aria-hidden="true">
-          <span class="ck-float-badge ck-fb-orange">${SVG.tool} REPORT</span>
-        </div>
-        <div class="ck-hero-float ck-float-2" aria-hidden="true">
-          <span class="ck-float-badge ck-fb-green">${SVG.sprout} INITIATIVE</span>
-        </div>
-        <div class="ck-hero-float ck-float-3" aria-hidden="true">
-          <span class="ck-float-badge ck-fb-blue">${SVG.users} VOLUNTEER</span>
-        </div>
-        <div class="ck-hero-float ck-float-4" aria-hidden="true">
-          <span class="ck-float-badge ck-fb-purple">${SVG.activity} TRACK</span>
-        </div>
-        <div class="ck-hero-float ck-float-5" aria-hidden="true">
-          <span class="ck-float-badge ck-fb-pink">${SVG.message} SPEAK UP</span>
-        </div>
+            <h1 class="ck-hero-headline">
+              Don't hesitate<br>
+              to <span class="ck-hero-accent">speak up.</span>
+            </h1>
 
-        <!-- Big personality text -->
-        <div class="ck-hero-content">
-          <div class="ck-hero-pill">
-            <span class="ck-hero-pill-dot"></span>
-            The Civic OS That Actually Listens
+            <p class="ck-hero-sub">
+              Your city has problems. You have ideas. CivicKalki turns both into
+              structured civic action — one engine connecting citizens, wards and
+              departments, with every step on the record.
+            </p>
+
+            <div class="ck-hero-actions">
+              ${loggedIn ? `
+                <a href="/dashboard" class="ck-btn-hero">Open my workspace →</a>
+              ` : `
+                <a href="/signup" class="ck-btn-hero">Start your civic journey</a>
+                <a href="/login" class="ck-btn-hero-ghost">I have an account →</a>
+              `}
+            </div>
+
+            <!-- Live figures from this installation's public metadata -->
+            <dl class="ck-hero-facts" id="ck-hero-facts" aria-label="This installation">
+              <div><dt>Modules</dt><dd id="ck-fact-modules">—</dd></div>
+              <div><dt>Rules linking them</dt><dd id="ck-fact-rules">—</dd></div>
+              <div><dt>Wards</dt><dd id="ck-fact-wards">—</dd></div>
+            </dl>
           </div>
 
-          <h1 class="ck-hero-headline">
-            Don't<br>
-            Hesitate<br>
-            to <span class="ck-hero-accent">Speak Up.</span>
-          </h1>
-
-          <p class="ck-hero-sub">
-            Your city has problems. You have ideas.<br class="ck-hide-mobile">
-            CIVIC-KALKI turns both into structured civic action<br class="ck-hide-mobile">
-            — with AI that actually understands what you need.
-          </p>
-
-          <!-- Mascot eyes peeking up -->
-          <div class="ck-hero-mascot" aria-hidden="true">
-            <div class="ck-mascot-body">
-              <div class="ck-mascot-eye ck-eye-left">
-                <div class="ck-mascot-pupil" id="ck-pupil-l"></div>
-              </div>
-              <div class="ck-mascot-eye ck-eye-right">
-                <div class="ck-mascot-pupil" id="ck-pupil-r"></div>
-              </div>
+          <div class="ck-hero2-stage">
+            <div class="ck-hero2-scene" id="ck-hero-scene" role="img"
+                 aria-label="A model of the civic ecosystem: one engine in the centre, the configured modules around it, and the city's wards on the outside, with requests moving between them.">
+              <!-- Static drawing: shown while the 3D scene loads, and instead of it when 3D is not suitable -->
+              <svg class="ck-hero2-fallback" viewBox="0 0 520 520" aria-hidden="true">
+                <defs>
+                  <radialGradient id="ckSun" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stop-color="#f0b450" stop-opacity=".55"/>
+                    <stop offset="100%" stop-color="#f0b450" stop-opacity="0"/>
+                  </radialGradient>
+                </defs>
+                <ellipse cx="260" cy="330" rx="230" ry="96" fill="#f6f1e8" stroke="#e7e1d7"/>
+                <ellipse cx="260" cy="330" rx="188" ry="78" fill="none" stroke="#14212b" stroke-opacity=".14"/>
+                <ellipse cx="260" cy="330" rx="108" ry="45" fill="none" stroke="#14212b" stroke-opacity=".22"/>
+                <circle cx="260" cy="236" r="120" fill="url(#ckSun)"/>
+                <g stroke="#0f5257" stroke-opacity=".35">
+                  <line x1="260" y1="236" x2="152" y2="300"/><line x1="260" y1="236" x2="368" y2="300"/>
+                  <line x1="260" y1="236" x2="205" y2="356"/><line x1="260" y1="236" x2="315" y2="356"/>
+                  <line x1="260" y1="236" x2="260" y2="286"/>
+                </g>
+                <path d="M152 300 Q260 190 368 300" fill="none" stroke="#e8623a" stroke-width="2"/>
+                <polygon points="260,196 295,216 295,256 260,276 225,256 225,216" fill="#0f5257"/>
+                <g fill="#2f7f84"><circle cx="152" cy="300" r="13"/><circle cx="368" cy="300" r="13"/><circle cx="205" cy="356" r="13"/><circle cx="315" cy="356" r="13"/></g>
+                <g fill="#e9e2d6" stroke="#d9cfbf">
+                  <rect x="52" y="318" width="46" height="16" rx="3"/><rect x="422" y="318" width="46" height="16" rx="3"/>
+                  <rect x="120" y="386" width="46" height="16" rx="3"/><rect x="354" y="386" width="46" height="16" rx="3"/>
+                  <rect x="237" y="408" width="46" height="16" rx="3"/>
+                </g>
+              </svg>
             </div>
+            <p class="ck-hero2-caption" id="ck-hero-caption">One engine, every civic module, each ward — drawn from this installation's own configuration.</p>
           </div>
-
-          <div class="ck-hero-actions">
-            ${loggedIn ? `
-              <a href="/dashboard" class="ck-btn-hero">Enter My Workspace →</a>
-            ` : `
-              <a href="/signup" class="ck-btn-hero">Start Your Civic Journey</a>
-              <a href="/login" class="ck-btn-hero-ghost">I have an account →</a>
-            `}
-          </div>
-
-          <!-- Trust badges row -->
-          <div class="ck-hero-trust">
-            <div class="ck-trust-item">
-              <span class="ck-trust-num">7+</span>
-              <span class="ck-trust-label">Civic Modules</span>
-            </div>
-            <div class="ck-trust-sep"></div>
-            <div class="ck-trust-item">
-              <span class="ck-trust-num">AI</span>
-              <span class="ck-trust-label">Powered Agent</span>
-            </div>
-            <div class="ck-trust-sep"></div>
-            <div class="ck-trust-item">
-              <span class="ck-trust-num">0</span>
-              <span class="ck-trust-label">Code Needed</span>
-            </div>
-            <div class="ck-trust-sep"></div>
-            <div class="ck-trust-item">
-              <span class="ck-trust-num">∞</span>
-              <span class="ck-trust-label">Civic Impact</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Scroll indicator -->
-        <div class="ck-hero-scroll" aria-hidden="true">
-          <div class="ck-scroll-line"></div>
-          <span>scroll</span>
         </div>
       </section>
 
@@ -607,7 +588,57 @@ export function renderHome() {
   attachHomeEvents();
 }
 
+// The mounted 3D scene, if any (one at a time; replaced when the page is drawn again).
+let activeScene = null;
+
+/**
+ * Fill the hero's figures and mount the 3D scene from public metadata.
+ * 3D is used only when it will work well: WebGL available, a wide enough
+ * screen, and the visitor has not asked for reduced motion.
+ */
+async function initHeroScene() {
+  if (activeScene) { activeScene.destroy(); activeScene = null; }
+  const mount = document.getElementById('ck-hero-scene');
+  if (!mount) return;
+
+  const json = (url) => fetch(url, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const [meta, tree] = await Promise.all([json('/api/forms/metadata'), json('/api/jurisdictions?tree=true')]);
+  if (!mount.isConnected) return;
+
+  const types = meta?.data?.entityTypes || [];
+  const rules = meta?.data?.rules || [];
+  const wards = [];
+  const walk = (nodes) => (nodes || []).forEach((n) => { if (n.type === 'ward' && n.status !== 'inactive') wards.push(n.name); walk(n.children); });
+  walk(Array.isArray(tree?.data) ? tree.data : []);
+
+  const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = String(value); };
+  if (meta) { set('ck-fact-modules', types.length); set('ck-fact-rules', rules.length); }
+  if (tree) set('ck-fact-wards', wards.length);
+
+  let canWebGL = false;
+  try { const c = document.createElement('canvas'); canWebGL = Boolean(c.getContext('webgl2') || c.getContext('webgl')); } catch { canWebGL = false; }
+  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!canWebGL || reduced || window.innerWidth < 760 || !types.length) return;
+
+  try {
+    const [{ mountCivicScene }, { getCapabilityPresentation }] = await Promise.all([
+      import('../components/civicScene.js'),
+      import('../utils/terminology.js'),
+    ]);
+    if (!mount.isConnected) return;
+    activeScene = mountCivicScene(mount, {
+      modules: types.map((t) => ({ id: t.entity_type_id, name: getCapabilityPresentation(t).shortTitle || t.name, count: t._count?.entities || 0 })),
+      rules: rules.filter((r) => r.auto_create).map((r) => ({ source: r.source_entity_type_id, target: r.target_entity_type_id })),
+      wards,
+    });
+    mount.classList.add('is-live');
+  } catch (err) {
+    // The static drawing stays.
+  }
+}
+
 function attachHomeEvents() {
+  initHeroScene();
 
   // ── Header scroll effect ──
   const header = document.getElementById('ck-home-header');
