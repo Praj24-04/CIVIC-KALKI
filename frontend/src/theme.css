@@ -504,7 +504,8 @@ a.ws-item, a.ws-item:hover, a.ws-action, a.ws-action:hover, a.ws-fact, a.ws-fact
 /* Layout, type and pills come from the original style.css rules; only colours map to tokens. */
 .ck-hero-classic .ck-hero-pill { border-color: rgba(var(--accent-rgb), .25); box-shadow: 0 2px 10px rgba(var(--accent-rgb), .08); }
 .ck-hero-classic .ck-hero-pill-dot { background: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .25); }
-.ck-hero-classic .ck-hero-headline { color: var(--text-primary); }
+/* Undo the global h1 softening (SOFT 40, fixed opsz) so the headline keeps its original sharp cut */
+.ck-hero-classic .ck-hero-headline { color: #171512; font-weight: 700; letter-spacing: -0.025em; font-variation-settings: normal; }
 .ck-hero-classic .ck-hero-accent { color: var(--accent); }
 .ck-hero-classic .ck-hero-accent::after { background: rgba(var(--accent-rgb), .22); }
 .ck-hero-classic .ck-trust-num { color: var(--accent); }
