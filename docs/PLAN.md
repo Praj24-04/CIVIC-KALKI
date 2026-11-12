@@ -31,7 +31,8 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 3 | V2 | **Done (chart and table)** 11 Nov: "Civic activity across wards" on the director dashboard, bars plus sortable table, from reports that opt in through their `ReportMaster` configuration. **3D columns not built**; not on the Governance page |
 | 3 | F3 | **Done** 11 Nov: global focus-visible ring, reduced-motion block, byte-order marks removed, damaged characters repaired in 12 files |
 | — | Demo rehearsal fixes | **Done** 11 Nov: the No-Code Builder wizard could not get past step 4 (its inline handlers used names that were not global); fixed and clicked through to a deployed module with a rule. Two published Civic Buzz posts are seeded so the page is not empty without AI |
-| 3 | Remaining Should/Could items (F2, B3, B4, M1, G2, B5, B6, F1), V2 3D columns | Not started |
+| — | Product-readiness review | **Done** 12 Nov: see `docs/READINESS_REVIEW.md`. No code changed. Open blocker: AI has never been run with a real Gemini key |
+| 3 | Remaining Should/Could items (F2, B3, B4, M1, G2, B5, B6, F1), V2 3D columns | On hold until the review findings are decided |
 
 ## Tier 1 — correctness and a demo that cannot fail
 
