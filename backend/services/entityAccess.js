@@ -83,6 +83,38 @@ function assertOwnerOrStaff(entity, user) {
   throw httpError(`Entity with id ${entity ? entity.entity_id : ''} was not found.`, 404);
 }
 
+// ── What a public viewer never gets ─────────────────────────────────────────
+// Fields that identify or reach a person, and anything attached. Decided from
+// the field's own metadata (type, key, label), so it applies to every module,
+// including ones built in the app.
+const PRIVATE_FIELD_TYPES = new Set(['email', 'phone', 'tel', 'file', 'image', 'signature']);
+const PRIVATE_FIELD_NAME = /(report(er|ed[_ ]?by)|complainant|applicant|contact|phone|mobile|whats ?app|e-?mail|aadhaa?r|\bpan\b|passport[_ ]?n|date[_ ]?of[_ ]?birth|\bdob\b|home[_ ]?address|guardian|next[_ ]?of[_ ]?kin)/i;
+
+/** True if a field (ParameterMaster) holds contact details, identity details or an attachment. */
+function isPrivateField(parameter) {
+  if (!parameter) return true; // no metadata: do not publish what cannot be classified
+  const types = [parameter.field_type, parameter.control_type].map((t) => String(t || '').toLowerCase());
+  if (types.some((t) => PRIVATE_FIELD_TYPES.has(t))) return true;
+  return PRIVATE_FIELD_NAME.test(String(parameter.field_key || '')) || PRIVATE_FIELD_NAME.test(String(parameter.label || ''));
+}
+
+/**
+ * Remove who filed a record when the caller is only a public viewer of it:
+ * no name, no email, no user id. Returns the same object.
+ */
+function redactOwnerForViewer(entity, user) {
+  if (entity && viewerLevel(entity, user) === 'public') {
+    if ('owner' in entity) entity.owner = null;
+    entity.owner_user_id = null;
+  }
+  return entity;
+}
+
+/** The field values a public viewer may see: everything except private fields. */
+function publicValues(values) {
+  return (values || []).filter((v) => !isPrivateField(v.parameterMaster));
+}
+
 /**
  * Owner fields safe to return to this caller: an email address only goes to
  * staff and to the owner themselves, never to anonymous visitors or other citizens.
@@ -96,6 +128,9 @@ module.exports = {
   assertCanReadEntityData,
   assertOwnerOrStaff,
   viewerLevel,
+  isPrivateField,
+  redactOwnerForViewer,
+  publicValues,
   ownerSelectFor,
   isPublicStatus,
   STAFF_ROLES,

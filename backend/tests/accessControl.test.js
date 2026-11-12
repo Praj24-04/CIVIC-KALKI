@@ -236,7 +236,9 @@ describe('S1 and S2 — access control', () => {
     test('GET /entities/:id for an approved record has no email', async () => {
       const res = await request(app).get(`/entities/${approvedEntity.entity_id}`);
       expect(res.status).toBe(200);
-      expect(res.body.data.owner.name).toBeDefined();
+      // A public viewer is not told who filed it.
+      expect(res.body.data.owner).toBeNull();
+      expect(res.body.data.owner_user_id).toBeNull();
       expect(emailKeys(res.body)).toEqual([]);
     });
 
@@ -300,7 +302,7 @@ describe('S1 and S2 — access control', () => {
       expect(asOwner.body.data.owner.email).toBe(owner.user.email);
       const asOther = await request(app).get(path).set(otherCitizen.headers);
       expect(asOther.status).toBe(200);
-      expect(asOther.body.data.owner.email).toBeUndefined();
+      expect(asOther.body.data.owner).toBeNull();
     });
   });
 
@@ -361,6 +363,109 @@ describe('S1 and S2 — access control', () => {
       const res = await request(app).get(`/entities?limit=100&owner_user_id=${owner.user.user_id}`).set(otherCitizen.headers);
       expect(res.status).toBe(200);
       expect(res.body.data.every((e) => e.owner_user_id === otherCitizen.user.user_id)).toBe(true);
+    });
+  });
+
+  // ── Bug 2: what the public sees of an approved record ──
+  describe('public output never includes reporter contact fields or attachments', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const SECRET = { name: 'Asha Reporter-Private', phone: '+91 98765 43210', email: 'asha.private@example.org', file: 'private-evidence.png' };
+    let complaint, fileRow, diskPath;
+
+    beforeAll(async () => {
+      const grievance = await prisma.entityType.findFirst({ where: { name: 'Grievance' } });
+      const params = await prisma.parameterMaster.findMany({
+        where: { subsectionMaster: { sectionMaster: { formMaster: { entity_type_id: grievance.entity_type_id } } } },
+      });
+      const byKey = (k) => params.find((p) => p.field_key === k);
+      complaint = await prisma.entity.create({
+        data: { entity_type_id: grievance.entity_type_id, owner_user_id: owner.user.user_id, name: 'Access Control Approved Complaint', status: 'approved', area: 'Sector 5' },
+      });
+      const values = [
+        ['complaint_details', 'Streetlight out on the corner'],
+        ['category', 'Infrastructure'],
+        ['reporter_name', SECRET.name],
+        ['reporter_phone', SECRET.phone],
+        ['reporter_email', SECRET.email],
+        ['photo_evidence', SECRET.file],
+      ];
+      for (const [key, value] of values) {
+        await prisma.parameterValue.create({ data: { entity_id: complaint.entity_id, parameter_id: byKey(key).parameter_id, value } });
+      }
+      const stored = `ac-private-${Date.now()}.png`;
+      diskPath = path.join(__dirname, '..', 'uploads', stored);
+      fs.mkdirSync(path.dirname(diskPath), { recursive: true });
+      fs.writeFileSync(diskPath, 'not really a png');
+      fileRow = await prisma.fileRepository.create({
+        data: { entity_id: complaint.entity_id, parameter_id: byKey('photo_evidence').parameter_id, file_name: SECRET.file, path: stored },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.fileRepository.deleteMany({ where: { entity_id: complaint.entity_id } });
+      await prisma.parameterValue.deleteMany({ where: { entity_id: complaint.entity_id } });
+      if (diskPath && fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
+    });
+
+    const leaks = (body) => Object.values(SECRET).filter((v) => JSON.stringify(body).includes(v));
+    const publicViewers = () => [['anonymous', {}], ['another citizen', otherCitizen.headers]];
+
+    test('values: only the non-personal fields', async () => {
+      for (const [who, headers] of publicViewers()) {
+        const res = await request(app).get(`/entities/${complaint.entity_id}/values`).set(headers);
+        expect([who, res.status]).toEqual([who, 200]);
+        const keys = res.body.data.map((v) => v.parameterMaster.field_key).sort();
+        expect([who, keys]).toEqual([who, ['category', 'complaint_details']]);
+        expect([who, leaks(res.body)]).toEqual([who, []]);
+      }
+    });
+
+    test('record and list: nothing about who filed it', async () => {
+      for (const [who, headers] of publicViewers()) {
+        const res = await request(app).get(`/entities/${complaint.entity_id}`).set(headers);
+        expect([who, res.status]).toEqual([who, 200]);
+        expect(res.body.data.owner).toBeNull();
+        expect(res.body.data.owner_user_id).toBeNull();
+        expect(JSON.stringify(res.body)).not.toContain(owner.user.name);
+        expect([who, leaks(res.body)]).toEqual([who, []]);
+      }
+      const list = await request(app).get('/entities?limit=100');
+      expect(list.status).toBe(200);
+      expect(list.body.data.length).toBeGreaterThan(0);
+      expect(list.body.data.every((e) => e.owner === null && e.owner_user_id === null)).toBe(true);
+    });
+
+    test('attachments: not listed and not downloadable', async () => {
+      for (const [who, headers] of publicViewers()) {
+        const list = await request(app).get(`/files/entity/${complaint.entity_id}`).set(headers);
+        expect([who, list.status, list.body.data]).toEqual([who, 200, []]);
+        const download = await request(app).get(`/files/${fileRow.file_id}`).set(headers);
+        expect([who, [401, 404].includes(download.status)]).toEqual([who, true]);
+        expect(download.text || '').not.toContain('not really a png');
+      }
+    });
+
+    test('the owner and staff still see every field and the attachment', async () => {
+      for (const who of [owner, admin]) {
+        const values = await request(app).get(`/entities/${complaint.entity_id}/values`).set(who.headers);
+        expect(values.body.data).toHaveLength(6);
+        expect(leaks(values.body).length).toBe(4);
+        const files = await request(app).get(`/files/entity/${complaint.entity_id}`).set(who.headers);
+        expect(files.body.data).toHaveLength(1);
+        const download = await request(app).get(`/files/${fileRow.file_id}`).set(who.headers);
+        expect(download.status).toBe(200);
+      }
+    });
+
+    test('field classification is by metadata, so it covers modules built later', () => {
+      const { isPrivateField } = require('../services/entityAccess');
+      expect(isPrivateField({ field_key: 'guardian_mobile', label: 'Guardian mobile', field_type: 'text' })).toBe(true);
+      expect(isPrivateField({ field_key: 'x', label: 'Signature scan', field_type: 'file' })).toBe(true);
+      expect(isPrivateField({ field_key: 'notes', label: 'Contact person', field_type: 'text' })).toBe(true);
+      expect(isPrivateField({ field_key: 'severity', label: 'Severity', field_type: 'select' })).toBe(false);
+      expect(isPrivateField({ field_key: 'number_of_saplings', label: 'Number of saplings', field_type: 'number' })).toBe(false);
+      expect(isPrivateField(null)).toBe(true);
     });
   });
 

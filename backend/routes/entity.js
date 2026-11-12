@@ -21,7 +21,7 @@ const { executeWorkflowTransition, getWorkflowMasterRules, validateWorkflowTrans
 const { applyLocationVisibility, applyLocationVisibilityMany } = require('../services/locationVisibility');
 const prisma = require('../db');
 const { getNotificationFeed } = require('../services/notificationFeed');
-const { assertCanModifyEntity, assertOwnerOrStaff, viewerLevel, ownerSelectFor, isPublicStatus, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
+const { assertCanModifyEntity, assertOwnerOrStaff, viewerLevel, redactOwnerForViewer, ownerSelectFor, isPublicStatus, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
 
 // Largest page a client may ask for.
 const MAX_PAGE_SIZE = 100;
@@ -442,6 +442,7 @@ router.get('/', async (req, res, next) => {
       }),
     ]);
 
+    entities.forEach((e) => redactOwnerForViewer(e, req.user));
     const visibleEntities = applyLocationVisibilityMany(entities, req.user);
 
     return res.status(200).json({
@@ -612,12 +613,8 @@ router.get('/:id', async (req, res, next) => {
       return next(createError(`Entity with id ${entityId} was not found.`, 404));
     }
 
-    // The owner's email goes only to staff and to the owner themselves.
-    if (entity.owner) {
-      const isOwner = req.user && Number(req.user.user_id) === Number(entity.owner_user_id);
-      const isStaff = req.user && STAFF_ROLES.includes(req.user.role);
-      if (!isOwner && !isStaff) delete entity.owner.email;
-    }
+    // A public viewer is not told who filed the record: no name, no email, no user id.
+    redactOwnerForViewer(entity, req.user);
 
     const visibleEntity = applyLocationVisibility(entity, req.user);
     return res.status(200).json({ success: true, data: visibleEntity });

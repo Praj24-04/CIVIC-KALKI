@@ -303,7 +303,7 @@ function renderContent(container, entity, values, audit, lineage, workflowMeta, 
             </div>
             <h2 style="font-size:1.5rem; font-weight:800; color:var(--text-primary); margin:4px 0;">${escapeHtml(entity.name)}</h2>
             <div style="font-size:13px; color:var(--text-muted);">
-              Submitted by <strong>${escapeHtml(entity.owner?.name || 'System')}</strong> • Jurisdiction Area: <strong>${escapeHtml(entity.area || '—')}</strong> • Location: <strong>${escapeHtml(entity.location || '—')}</strong>
+              Submitted by <strong>${escapeHtml(entity.owner?.name || (entity.source_entity_id ? 'System' : 'a citizen'))}</strong> • Jurisdiction Area: <strong>${escapeHtml(entity.area || '—')}</strong> • Location: <strong>${escapeHtml(entity.location || '—')}</strong>
             </div>
           </div>
         </div>

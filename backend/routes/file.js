@@ -17,7 +17,7 @@ const fs = require('fs');
 const router = express.Router();
 const prisma = require('../db');
 const { verifyToken } = require('../middleware/auth');
-const { assertCanModifyEntity, assertCanReadEntityData } = require('../services/entityAccess');
+const { assertCanModifyEntity, assertCanReadEntityData, assertOwnerOrStaff } = require('../services/entityAccess');
 
 // ── Ensure uploads directory exists ──────────────────────────────────────────
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
@@ -172,7 +172,10 @@ router.get('/entity/:id', async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Campaign photos are served only through the scoped Civic Buzz endpoint.', 404));
     }
-    assertCanReadEntityData(entity, req.user);
+    // Attachments are for the owner and staff only. A public viewer of an
+    // approved record gets an empty list, never the files.
+    const viewer = assertCanReadEntityData(entity, req.user);
+    if (viewer === 'public') return res.status(200).json({ success: true, data: [] });
     const files = await prisma.fileRepository.findMany({
       where: { entity_id: entityId },
       include: {
@@ -201,7 +204,8 @@ router.get('/:fileId', async (req, res, next) => {
     if (record.entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Campaign photos are served only through the scoped Civic Buzz endpoint.', 404));
     }
-    assertCanReadEntityData(record.entity, req.user);
+    // Downloading is for the owner and staff only, whatever the record's status.
+    assertOwnerOrStaff(record.entity, req.user);
 
     const filePath = path.join(UPLOAD_DIR, record.path);
     if (!fs.existsSync(filePath)) {
