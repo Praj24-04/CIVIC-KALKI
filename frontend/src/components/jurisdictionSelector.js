@@ -89,6 +89,17 @@ export class JurisdictionSelector {
   }
 
   /**
+   * The next level the user still has to choose, or null when the selection is
+   * as specific as it can be. A level counts only if it actually has options.
+   * @returns {string | null} the level's label, e.g. "Ward / Local Area"
+   */
+  getMissingLevel() {
+    const lastIdx = this._levelStates.reduce((acc, lvl, i) => (lvl.selectedItem ? i : acc), -1);
+    const next = this._levelStates[lastIdx + 1];
+    return next && Array.isArray(next.items) && next.items.length > 0 ? next.meta.label : null;
+  }
+
+  /**
    * Pre-select a jurisdiction by its ID, walking back up the ancestor path.
    * @param {number} jurisdictionId
    */

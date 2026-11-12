@@ -501,6 +501,48 @@ describe('S1 and S2 — access control', () => {
     });
   });
 
+  // ── Bug 3: a partial location cannot be saved ──
+  describe('a record needs the most specific location', () => {
+    const tag = `AC-${Date.now()}`;
+    let country, city, ward;
+
+    beforeAll(async () => {
+      country = await prisma.jurisdictionMaster.create({ data: { name: `${tag} Country`, type: 'country', status: 'active' } });
+      city = await prisma.jurisdictionMaster.create({ data: { name: `${tag} City`, type: 'city', status: 'active', parent_id: country.jurisdiction_id } });
+      ward = await prisma.jurisdictionMaster.create({ data: { name: `${tag} Ward`, type: 'ward', status: 'active', parent_id: city.jurisdiction_id } });
+    });
+
+    afterAll(async () => {
+      await prisma.entity.updateMany({ where: { jurisdiction_id: { in: [country.jurisdiction_id, city.jurisdiction_id, ward.jurisdiction_id] } }, data: { jurisdiction_id: null } });
+      for (const j of [ward, city, country]) await prisma.jurisdictionMaster.delete({ where: { jurisdiction_id: j.jurisdiction_id } });
+    });
+
+    const create = (jurisdiction_id) => request(app).post('/entities').set(owner.headers)
+      .send({ entity_type_id: movementType.entity_type_id, name: `${tag} record`, jurisdiction_id, status: 'submitted' });
+
+    test('country only, or city only: refused, nothing saved, and the message says what to choose', async () => {
+      const onCountry = await create(country.jurisdiction_id);
+      expect(onCountry.status).toBe(400);
+      expect(onCountry.body.error).toMatch(/choose a city/i);
+      const onCity = await create(city.jurisdiction_id);
+      expect(onCity.status).toBe(400);
+      expect(onCity.body.error).toMatch(/choose a ward/i);
+      expect(await prisma.entity.count({ where: { name: `${tag} record` } })).toBe(0);
+    });
+
+    test('ward: saved, with the ward as its area', async () => {
+      const res = await create(ward.jurisdiction_id);
+      expect(res.status).toBe(201);
+      expect(res.body.data.area).toBe(`${tag} Ward`);
+      expect(res.body.data.status).toBe('submitted');
+    });
+
+    test('an existing record cannot be moved to a partial location either', async () => {
+      const res = await request(app).put(`/entities/${ownedEntity.entity_id}`).set(owner.headers).send({ jurisdiction_id: city.jurisdiction_id });
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe('client-supplied status on create', () => {
     const create = (headers, status) =>
       request(app).post('/entities').set(headers)

@@ -459,7 +459,12 @@ async function handleFormSubmit(e) {
     // Resolve jurisdiction from the dynamic selector
     const jselVal = _jurisdictionSelectorInstance ? _jurisdictionSelectorInstance.getValue() : null;
     if (!jselVal) {
-      throw new Error('Please select a jurisdiction (at minimum a Country) before submitting.');
+      throw new Error('Please choose where this is, down to the ward, before submitting.');
+    }
+    // A partial location (only a country, state or city) would reach no coordinator.
+    const missingLevel = _jurisdictionSelectorInstance.getMissingLevel();
+    if (missingLevel) {
+      throw new Error(`Please also choose the ${missingLevel}. A request needs a ward so that it reaches the right coordinator.`);
     }
 
     // Validate all active mandatory metadata parameters

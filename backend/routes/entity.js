@@ -86,6 +86,25 @@ function haversineDistanceKm(lat1, lon1, lat2, lon2) {
 }
 
 // ── Helper: check owner or staff role permission on entity ──────────────────
+/**
+ * A record's location must be the most specific one available. Work is routed
+ * to the coordinator of the record's area, and coordinators are assigned at the
+ * lowest level (a ward), so a record placed on a country, state or city that has
+ * areas under it would reach nobody. Throws 400 naming what is missing.
+ */
+async function assertMostSpecificJurisdiction(node) {
+  const child = await prisma.jurisdictionMaster.findFirst({
+    where: { parent_id: node.jurisdiction_id, status: 'active' },
+    select: { type: true },
+  });
+  if (child) {
+    throw createError(
+      `Please choose a ${child.type || 'more specific area'} within ${node.name}. A record needs a ${child.type || 'specific area'} so that it reaches the right coordinator.`,
+      400
+    );
+  }
+}
+
 function checkEntityOwnership(existingEntity, reqUser) {
   return assertCanModifyEntity(existingEntity, reqUser);
 }
@@ -270,6 +289,8 @@ router.post('/', verifyToken, async (req, res, next) => {
       if (jurisdictionNode.status !== 'active') {
         return next(createError(`jurisdiction_id ${parsedJurisdictionId} is inactive.`, 400));
       }
+
+      await assertMostSpecificJurisdiction(jurisdictionNode);
 
       // Canonical synchronization: area is synchronized from leaf jurisdiction
       resolvedArea = jurisdictionNode.name;
@@ -732,6 +753,7 @@ router.put('/:id', verifyToken, async (req, res, next) => {
         }
         updateData.jurisdiction_id = parsedJId;
         // Synchronize area from leaf jurisdiction
+        await assertMostSpecificJurisdiction(jNode);
         updateData.area = jNode.name;
       }
     }
