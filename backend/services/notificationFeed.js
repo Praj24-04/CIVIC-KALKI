@@ -21,6 +21,7 @@
 const prisma = require('../db');
 
 const LOOKBACK_ROWS = 300;
+const SEED_ACTOR_PREFIX = 'system/seed';
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
 const OWNER_ROLES = new Set(['owner', 'citizen']);
@@ -55,6 +56,9 @@ async function getNotificationFeed(user, options = {}) {
     prisma.auditLog.findMany({
       where: {
         OR: [{ new_status: { not: null } }, { action: 'auto_created' }],
+        // Rows written by seeding ("system/seed…") describe simulated history, not
+        // something a person did or needs to act on, so they notify nobody.
+        AND: [{ OR: [{ user: null }, { NOT: { user: { startsWith: SEED_ACTOR_PREFIX } } }] }],
         entity: { entityType: { name: { not: 'Civic Campaign' } } },
       },
       orderBy: { datetime: 'desc' },

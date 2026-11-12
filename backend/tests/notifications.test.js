@@ -98,6 +98,31 @@ describe('N1 — notification feed', () => {
     expect(JSON.stringify(mine)).not.toMatch(/@/);
   });
 
+  test('history written by seeding notifies nobody', async () => {
+    // A record that a seed script put straight into the director's stage.
+    const seeded = await prisma.entity.create({
+      data: { entity_type_id: movementType.entity_type_id, name: 'Seedcheck Simulated Record', area: AREA, status: 'coordinator_approved' },
+    });
+    await prisma.auditLog.create({
+      data: { entity_id: seeded.entity_id, actor_user_id: null, action: 'status_transition', user: 'system/seed', old_status: 'submitted', new_status: 'coordinator_approved', reason: 'simulation' },
+    });
+    // The same situation, but done by a person.
+    const real = await prisma.entity.create({
+      data: { entity_type_id: movementType.entity_type_id, owner_user_id: citizen.user.user_id, name: 'Seedcheck Real Record', area: AREA, status: 'coordinator_approved' },
+    });
+    await prisma.auditLog.create({
+      data: { entity_id: real.entity_id, actor_user_id: coordinator.user.user_id, action: 'status_transition', user: coordinator.user.name, old_status: 'submitted', new_status: 'coordinator_approved' },
+    });
+
+    for (const who of [director, admin]) {
+      const res = await request(app).get('/entities/notifications?limit=100').set(who.headers);
+      const ids = res.body.data.map((n) => n.entity_id);
+      expect(ids).toContain(real.entity_id);
+      expect(ids).not.toContain(seeded.entity_id);
+      expect(res.body.data.some((n) => /\[Simulation\]/.test(n.entity_name))).toBe(false);
+    }
+  });
+
   test('NotificationRule metadata overrides the default recipients', async () => {
     // Tell only admins (not the owner, not the next approver) about submitted → coordinator_approved.
     const template = await prisma.emailTemplate.create({ data: { template_name: 'Notif test template' } });
