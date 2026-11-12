@@ -142,30 +142,29 @@ export function renderHome() {
             — with AI that actually understands what you need.
           </p>
 
-          <!-- Mascot: eyes follow the pointer (decorative) -->
-          <div class="ck-hero-mascot" aria-hidden="true">
-            <div class="ck-mascot-body">
+          <!-- Mascot dome: rises from the bottom of the hero; the actions and figures sit on its body -->
+          <div class="ck-hero-dome">
+            <div class="ck-dome-eyes" aria-hidden="true">
               <div class="ck-mascot-eye"><div class="ck-mascot-pupil" id="ck-pupil-l"></div></div>
               <div class="ck-mascot-eye"><div class="ck-mascot-pupil" id="ck-pupil-r"></div></div>
             </div>
-          </div>
+            <div class="ck-hero-actions">
+              ${loggedIn ? `
+                <a href="/dashboard" class="ck-btn-hero">Enter My Workspace →</a>
+              ` : `
+                <a href="/signup" class="ck-btn-hero">Start Your Civic Journey</a>
+                <a href="/login" class="ck-btn-hero-ghost">I have an account →</a>
+              `}
+            </div>
 
-          <div class="ck-hero-actions">
-            ${loggedIn ? `
-              <a href="/dashboard" class="ck-btn-hero">Enter My Workspace →</a>
-            ` : `
-              <a href="/signup" class="ck-btn-hero">Start Your Civic Journey</a>
-              <a href="/login" class="ck-btn-hero-ghost">I have an account →</a>
-            `}
-          </div>
-
-          <!-- Live figures from this installation's public metadata -->
-          <div class="ck-hero-trust" aria-label="This installation">
-            <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-modules">—</span><span class="ck-trust-label">Civic Modules</span></div>
-            <div class="ck-trust-sep"></div>
-            <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-rules">—</span><span class="ck-trust-label">Rules Linking Them</span></div>
-            <div class="ck-trust-sep"></div>
-            <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-wards">—</span><span class="ck-trust-label">Wards</span></div>
+            <!-- Live figures from this installation's public metadata -->
+            <div class="ck-hero-trust" aria-label="This installation">
+              <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-modules">—</span><span class="ck-trust-label">Civic Modules</span></div>
+              <div class="ck-trust-sep"></div>
+              <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-rules">—</span><span class="ck-trust-label">Rules Linking Them</span></div>
+              <div class="ck-trust-sep"></div>
+              <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-wards">—</span><span class="ck-trust-label">Wards</span></div>
+            </div>
           </div>
         </div>
       </section>
