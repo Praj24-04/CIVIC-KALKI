@@ -543,6 +543,58 @@ describe('S1 and S2 — access control', () => {
     });
   });
 
+  // ── Bug 8: a coordinator's records list is their own scope ──
+  describe("coordinators list only the records that are theirs to handle", () => {
+    const WARD = `AC-Ward-${Date.now()}`;
+    let wardCoordinator, generalCoordinator, noWardCoordinator, inWard, elsewhere, noWard;
+
+    beforeAll(async () => {
+      wardCoordinator = await createTestUser({ role: 'coordinator_area', assignedArea: WARD });
+      noWardCoordinator = await createTestUser({ role: 'coordinator_area' });
+      generalCoordinator = await createTestUser({ role: 'coordinator_general' });
+      const mk = (name, area) => prisma.entity.create({
+        data: { entity_type_id: movementType.entity_type_id, owner_user_id: owner.user.user_id, name, area, status: 'submitted' },
+      });
+      inWard = await mk('AC scope in ward', WARD);
+      elsewhere = await mk('AC scope elsewhere', `${WARD}-other`);
+      noWard = await mk('AC scope no ward', null);
+    });
+
+    const idsFor = async (who, query = '') => {
+      const res = await request(app).get(`/entities?limit=100${query}`).set(who.headers);
+      expect(res.status).toBe(200);
+      return res.body.data;
+    };
+
+    test('area coordinator: their ward only, whatever filter is sent', async () => {
+      for (const query of ['', `&area=${encodeURIComponent(`${WARD}-other`)}`]) {
+        const rows = await idsFor(wardCoordinator, query);
+        expect(rows.map((e) => e.entity_id)).toEqual([inWard.entity_id]);
+        expect(rows.every((e) => e.area === WARD)).toBe(true);
+      }
+    });
+
+    test('area coordinator with no ward: nothing', async () => {
+      expect(await idsFor(noWardCoordinator)).toEqual([]);
+    });
+
+    test('general coordinator: only records with no ward', async () => {
+      const rows = await idsFor(generalCoordinator);
+      const ids = rows.map((e) => e.entity_id);
+      expect(ids).toContain(noWard.entity_id);
+      expect(ids).not.toContain(inWard.entity_id);
+      expect(ids).not.toContain(elsewhere.entity_id);
+      expect(rows.every((e) => !e.area || String(e.area).toLowerCase() === 'unassigned')).toBe(true);
+    });
+
+    test('director and admin still list everything', async () => {
+      for (const who of [admin]) {
+        const ids = (await idsFor(who, `&name=${encodeURIComponent('AC scope')}`)).map((e) => e.entity_id).sort();
+        expect(ids).toEqual([inWard.entity_id, elsewhere.entity_id, noWard.entity_id].sort());
+      }
+    });
+  });
+
   describe('client-supplied status on create', () => {
     const create = (headers, status) =>
       request(app).post('/entities').set(headers)

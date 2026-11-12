@@ -423,6 +423,18 @@ router.get('/', async (req, res, next) => {
       where.status = { equals: PUBLIC_STATUS, mode: 'insensitive' };
     }
 
+    // Coordinators list the records that are theirs to handle: an area coordinator
+    // their own ward, a general coordinator the records with no ward. (The same
+    // scope the workflow engine uses to decide who may act.)
+    if (req.user && req.user.role === 'coordinator_area') {
+      const ward = String(req.user.assignedArea || req.user.assigned_area || '').trim();
+      // No ward assigned means nothing is routed to them, so nothing is listed.
+      if (ward) where.area = ward;
+      else where.entity_id = -1;
+    } else if (req.user && req.user.role === 'coordinator_general') {
+      where.AND = [{ OR: [{ area: null }, { area: '' }, { area: { equals: 'unassigned', mode: 'insensitive' } }] }];
+    }
+
     // Citizens can strictly only view entities initiated by themselves
     if (req.user && req.user.role === 'citizen') {
       where.owner_user_id = Number(req.user.user_id);
