@@ -13,7 +13,8 @@
     "import:geo": "node scripts/importGeoData.js",
     "import:geo:all": "node scripts/importGeoData.js --all",
     "seed:all": "node seed.js && node scripts/seedMeme.js && node scripts/seed-demo-users.js && node scripts/seedDemoData.js",
-    "demo:reset": "node scripts/resetDemo.js && npm run seed:all"
+    "demo:reset": "node scripts/resetDemo.js && npm run seed:all",
+    "ai:check": "node scripts/aiCheck.js"
   },
   "keywords": [],
   "author": "",

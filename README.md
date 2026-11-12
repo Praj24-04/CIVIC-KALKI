@@ -61,7 +61,15 @@ The reset refuses to run against a Supabase database, and against any other remo
 
 ### AI features
 
-AI is optional. Put a Gemini key in `GEMINI_API_KEY` in `backend/.env` and restart `npm run dev`. Without a key, or without a network, the AI features show their labeled fallbacks; see the "AI-down path" in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+AI is optional. Put a Gemini key in `GEMINI_API_KEY` in `backend/.env` and restart `npm run dev`. Then check it:
+
+```bash
+npm run ai:check
+```
+
+It lists the models the key can use, says whether the configured model is one of them, and runs one test generation. It never prints the key. If the configured model is not available, set `GEMINI_MODEL` in `backend/.env` to one from the list.
+
+ Without a key, or without a network, the AI features show their labeled fallbacks; see the "AI-down path" in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
 
 ### Switching database
 
