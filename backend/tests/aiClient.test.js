@@ -124,6 +124,36 @@ describe('A1 — AI client', () => {
     });
   });
 
+  describe('director report status codes', () => {
+    const makeEntity = () => prisma.entity.create({
+      data: { entity_type_id: movementType.entity_type_id, owner_user_id: citizen.user.user_id, name: 'A1 Status Entity', status: 'coordinator_approved' },
+    });
+    const run = async (entity) => {
+      const res = await request(app).post(`/entities/${entity.entity_id}/ai-analysis`).set(director.headers).send({});
+      await prisma.aIExecutionLog.deleteMany({ where: { entity_id: entity.entity_id } });
+      return res;
+    };
+
+    test('no key: 503', async () => {
+      delete process.env.GEMINI_API_KEY;
+      expect((await run(await makeEntity())).status).toBe(503);
+    });
+
+    test('network error: 503, with a message safe to show', async () => {
+      mockGenerate.mockRejectedValue(new Error('fetch failed: secret-internal-detail'));
+      const res = await run(await makeEntity());
+      expect(res.status).toBe(503);
+      expect(JSON.stringify(res.body)).not.toContain('secret-internal-detail');
+    });
+
+    test('the AI answers but the answer is unusable: 502, not treated as unreachable', async () => {
+      mockGenerate.mockResolvedValue(reply('this is not a report'));
+      const res = await run(await makeEntity());
+      expect(res.status).toBe(502);
+      expect(mockGenerate).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('labeled fallbacks through the API', () => {
     const chat = (message) =>
       request(app).post('/agent/chat').set(citizen.headers)
@@ -160,7 +190,9 @@ describe('A1 — AI client', () => {
       const started = Date.now();
       const res = await request(app).post(`/entities/${entity.entity_id}/ai-analysis`).set(director.headers).send({});
       expect(Date.now() - started).toBeLessThan(TIMEOUT_MS + 2000);
-      expect(res.status).toBeGreaterThanOrEqual(500);
+      // 503 tells the page that no AI answer exists, so it can show its labeled non-AI summary.
+      expect(res.status).toBe(503);
+      expect(res.body.error).toMatch(/could not be reached/i);
       expect(res.body.success).toBe(false);
       expect(res.body.data).toBeUndefined();
       expect(mockGenerate).toHaveBeenCalledTimes(1);

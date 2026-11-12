@@ -150,7 +150,7 @@ The JSON object must match this exact schema:
     });
 
     const err = new Error('Gemini API key is not configured on the server. Please set GEMINI_API_KEY in backend/.env');
-    err.statusCode = 500;
+    err.statusCode = 503;
     err.isPublic = true;
     err.logId = log.ai_execution_log_id;
     throw err;
@@ -161,6 +161,7 @@ The JSON object must match this exact schema:
   let rawResponseText = '';
   let parsedReport = null;
   let errorMessage = null;
+  let aiUnreachable = false;
 
   try {
     // Attempt 1
@@ -201,6 +202,9 @@ The JSON object must match this exact schema:
     } catch (attempt2Error) {
       console.error('[AI SERVICE] Attempt 2 failed:', attempt2Error.message);
       errorMessage = `Failed to generate valid JSON intelligence report: ${attempt2Error.message}`;
+      // The AI could not be reached at all (timeout, network, provider error),
+      // as opposed to answering something unusable.
+      aiUnreachable = aiClient.isAiUnavailable(attempt2Error);
     }
   }
 
@@ -219,8 +223,13 @@ The JSON object must match this exact schema:
   });
 
   if (!parsedReport) {
-    const err = new Error(errorMessage || 'Failed to parse Gemini AI response.');
-    err.statusCode = 502;
+    // 503 = no AI answer exists (the caller may show its labeled non-AI summary);
+    // 502 = the AI answered but the answer was unusable.
+    const err = aiUnreachable
+      ? new Error('The AI service could not be reached. No AI report was produced.')
+      : new Error(errorMessage || 'Failed to parse Gemini AI response.');
+    err.statusCode = aiUnreachable ? 503 : 502;
+    if (aiUnreachable) err.isPublic = true;
     err.logId = log.ai_execution_log_id;
     throw err;
   }

@@ -622,12 +622,15 @@ async function handleGenerateAIReport(entity, values = []) {
     setReportSourceLabel('ai');
     reportBody.innerHTML = renderReportSections(res.data);
   } catch (err) {
+    // 503 means no AI answer exists: either no key is configured, or the AI could
+    // not be reached. Both get the same labeled non-AI summary; any other failure
+    // (for example an unusable AI answer) is shown as an error.
     const isKeyError = String(err.message || '').includes('GEMINI_API_KEY') || String(err.message || '').includes('Gemini API key');
-    if (isKeyError) {
-      // No AI was involved: say so in the toast, the card header and the notice.
-      toastError('AI is not configured. Showing a deterministic summary of the case fields instead.');
+    if (isKeyError || err.status === 503) {
+      const why = isKeyError ? 'AI is not configured.' : 'The AI service could not be reached.';
+      toastError(`${why} Showing a deterministic summary of the case fields instead.`);
       setReportSourceLabel('deterministic');
-      reportBody.innerHTML = renderDeterministicSummary(entity, values);
+      reportBody.innerHTML = renderDeterministicSummary(entity, values, isKeyError ? 'no-key' : 'unreachable');
     } else {
       toastError(err.message || 'Could not generate AI report');
       reportBody.innerHTML = `<div class="alert alert-error">AI Analysis failed: ${escapeHtml(err.message)}</div>`;
@@ -660,7 +663,7 @@ function setReportSourceLabel(source) {
  * analysis, no risks and no recommendations, and it is NOT AI output; the card
  * is labelled by setReportSourceLabel('deterministic').
  */
-function renderDeterministicSummary(entity, values = []) {
+function renderDeterministicSummary(entity, values = [], reason = 'no-key') {
   const facts = [
     ['Record', `#${entity.entity_id} ${entity.name || ''}`],
     ['Type', entity.entityType?.name],
@@ -684,9 +687,13 @@ function renderDeterministicSummary(entity, values = []) {
     <div style="font-size:13px; color:var(--text-primary); line-height:1.5;">
       <div style="margin-bottom:12px; padding:10px 12px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; font-size:12px; color:#1e40af;">
         <strong>Deterministic summary, not AI output.</strong>
-        No AI key is configured, so this lists the record's own fields exactly as submitted.
+        ${reason === 'unreachable'
+          ? 'The AI service could not be reached, so this lists the record\'s own fields exactly as submitted.'
+          : 'No AI key is configured, so this lists the record\'s own fields exactly as submitted.'}
         It contains no analysis, risks or recommendations.
-        Set GEMINI_API_KEY in backend/.env for an AI-generated report.
+        ${reason === 'unreachable'
+          ? 'Try again when the network is back for an AI-generated report.'
+          : 'Set GEMINI_API_KEY in backend/.env for an AI-generated report.'}
       </div>
       <div class="table-container">
         <table>
