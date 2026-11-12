@@ -32,6 +32,7 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | 3 | F3 | **Done** 11 Nov: global focus-visible ring, reduced-motion block, byte-order marks removed, damaged characters repaired in 12 files |
 | — | Demo rehearsal fixes | **Done** 11 Nov: the No-Code Builder wizard could not get past step 4 (its inline handlers used names that were not global); fixed and clicked through to a deployed module with a rule. Two published Civic Buzz posts are seeded so the page is not empty without AI |
 | — | Product-readiness review | **Done** 12 Nov: see `docs/READINESS_REVIEW.md`. No code changed. Open blocker: AI has never been run with a real Gemini key |
+| — | Interface redesign | **Done** 12 Nov, by request: design system (`frontend/src/theme.css`, tokens in `style.css`), homepage 3D scene from real metadata (`components/civicScene.js`), five role-specific home pages (`pages/dashboard.js`), shorter navigation, working mobile menu. The citizen home page's invented sample data was removed. No API, permission or workflow changed |
 | 3 | Remaining Should/Could items (F2, B3, B4, M1, G2, B5, B6, F1), V2 3D columns | On hold until the review findings are decided |
 
 ## Tier 1 — correctness and a demo that cannot fail

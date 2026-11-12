@@ -145,16 +145,18 @@ export function renderLayout(contentHTML, pageTitle = '', metaTypes = []) {
         </div>
       </aside>
 
+      <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
       <!-- Main Content -->
       <main class="main-content">
         <header class="topbar">
           <div style="display:flex; align-items:center; gap:var(--space-3);">
-            <button id="mobile-menu-btn" class="btn btn-ghost" style="padding:6px; display:none;" aria-label="Toggle sidebar menu">
+            <button id="mobile-menu-btn" class="btn btn-ghost mobile-menu-btn" type="button" aria-label="Open the menu" aria-controls="sidebar" aria-expanded="false">
               <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
-            <div style="display:flex; align-items:center; gap:var(--space-2); font-size:0.95rem;">
-              <a href="/dashboard" style="color:var(--text-muted); text-decoration:none;">Civic OS</a>
-              <span style="color:var(--gray-300);">/</span>
+            <div class="topbar-crumbs">
+              <a href="/dashboard" class="topbar-crumb-root">CivicKalki</a>
+              <span class="topbar-crumb-sep" aria-hidden="true">/</span>
               <span style="font-weight:600; color:var(--text-primary);">${escapeHtml(pageTitle)}</span>
             </div>
           </div>
@@ -275,9 +277,14 @@ export function attachLayoutEvents() {
   const mobileBtn = document.getElementById('mobile-menu-btn');
   const sidebar = document.getElementById('sidebar');
   if (mobileBtn && sidebar) {
-    mobileBtn.addEventListener('click', () => {
-      sidebar.classList.toggle('open');
-    });
+    const setOpen = (open) => {
+      sidebar.classList.toggle('open', open);
+      mobileBtn.setAttribute('aria-expanded', String(open));
+      document.getElementById('sidebar-scrim')?.classList.toggle('show', open);
+    };
+    mobileBtn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(!sidebar.classList.contains('open')); });
+    document.getElementById('sidebar-scrim')?.addEventListener('click', () => setOpen(false));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
   }
 }
 

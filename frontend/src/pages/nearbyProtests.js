@@ -29,7 +29,7 @@ export async function renderNearbyProtests() {
   const contentHTML = `
     <div style="max-width:1200px; margin:0 auto; padding-bottom:40px;">
       <!-- Hero Banner -->
-      <div class="card mb-6" style="background:linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color:#fff; border:none; padding:28px; border-radius:12px; box-shadow:var(--shadow-lg);">
+      <div class="card mb-6" style="background:linear-gradient(150deg, #0f3b40 0%, #0b2f36 55%, #0a2530 100%); color:#fff; border:none; padding:28px; border-radius:20px; box-shadow:var(--shadow-lg);">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px;">
           <div style="max-width:650px;">
             <div style="display:inline-flex; align-items:center; gap:8px; background:rgba(var(--primary-rgb),0.2); border:1px solid rgba(var(--primary-rgb),0.4); padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700; color:var(--primary-500); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:12px;">

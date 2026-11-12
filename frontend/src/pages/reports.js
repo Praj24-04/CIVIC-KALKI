@@ -22,14 +22,14 @@ export async function renderReports() {
   app.innerHTML = renderLayout(`
     <div class="page-header mb-6">
       <div class="page-header-left">
-        <h1>Civic Reports</h1>
+        <h1>Reports</h1>
         <p>Analytical summaries and metric aggregations of municipal activity.</p>
       </div>
     </div>
     <div id="reports-container">
       <div class="loading-overlay"><div class="spinner spinner-lg"></div></div>
     </div>
-  `, 'Civic Reports');
+  `, 'Reports');
   attachLayoutEvents();
 
   try {
@@ -44,7 +44,7 @@ export async function renderReports() {
     app.innerHTML = renderLayout(`
       <div class="page-header mb-6">
         <div class="page-header-left">
-          <h1 style="font-size:1.75rem; font-weight:800; color:var(--text-primary);">Civic Reports</h1>
+          <h1>Reports</h1>
           <p style="color:var(--text-secondary); margin-top:2px;">
             Execute analytical query reports configured via ReportMaster metadata.
           </p>
@@ -52,7 +52,7 @@ export async function renderReports() {
       </div>
       
       <div id="reports-container"></div>
-    `, 'Civic Reports', entityTypes);
+    `, 'Reports', entityTypes);
     attachLayoutEvents();
 
     renderReportBrowser(document.getElementById('reports-container'));

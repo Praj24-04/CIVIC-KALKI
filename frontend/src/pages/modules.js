@@ -19,14 +19,14 @@ export async function renderModules() {
   app.innerHTML = renderLayout(`
     <div class="page-header mb-6">
       <div class="page-header-left">
-        <h1>Civic Capabilities</h1>
+        <h1>Modules</h1>
         <p>Explore all available civic operations, initiatives, and request modules.</p>
       </div>
     </div>
     <div id="modules-container">
       <div class="loading-overlay"><div class="spinner spinner-lg"></div></div>
     </div>
-  `, 'Civic Capabilities');
+  `, 'Modules');
   attachLayoutEvents();
 
   try {
@@ -36,7 +36,7 @@ export async function renderModules() {
     app.innerHTML = renderLayout(`
       <div class="page-header mb-6">
         <div class="page-header-left">
-          <h1 style="font-size:1.75rem; font-weight:800; color:var(--text-primary);">Civic Capabilities</h1>
+          <h1>Modules</h1>
           <p style="color:var(--text-secondary); margin-top:2px;">
             Select a civic capability to initiate requests, grievances, community initiatives, or civic actions.
           </p>
@@ -45,7 +45,7 @@ export async function renderModules() {
 
       <div id="modules-container"></div>
       <div id="rule-graph-container"></div>
-    `, 'Civic Capabilities', entityTypes);
+    `, 'Modules', entityTypes);
     attachLayoutEvents();
 
     renderCapabilityDirectory(document.getElementById('modules-container'), entityTypes);

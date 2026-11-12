@@ -125,7 +125,7 @@ function renderWizard() {
   app.innerHTML = renderLayout(`
     <div class="page-header">
       <div class="page-header-left">
-        <h1>No-Code Module Builder</h1>
+        <h1>Module builder</h1>
         <p>Design and deploy brand-new civic governance capabilities purely through metadata.</p>
       </div>
     </div>
@@ -138,7 +138,7 @@ function renderWizard() {
     </div>
 
     ${stepHTML}
-  `, 'Module Builder');
+  `, 'Module builder');
 
   attachLayoutEvents();
   attachWizardEvents();

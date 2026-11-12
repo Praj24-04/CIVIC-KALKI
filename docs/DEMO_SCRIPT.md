@@ -2,6 +2,10 @@
 
 Last checked 11 Nov 2026 on a local Postgres with no Gemini key. Every section below was walked through in a browser (headless Chromium), including deploying a module with a rule in the No-Code Builder. Not checked: anything that needs a real Gemini key, the map, translation, and the 3D view's frame rate on the demo laptop; rehearse those once on the laptop.
 
+## What changed in the interface (12 Nov)
+
+The interface was redesigned: new colours and type, a 3D model of the installation on the public homepage, and a different home page for each role. Menu names are shorter (**My desk**, **Approvals**, **Platform**, **All records**, **Modules**, **Module builder**, **Reports**, **Users and roles**; for citizens **Near me**, **My requests**, **Help**). The steps below use the new names. The staff home pages have a **Review next** / **Decide next** button that opens the record that has waited longest.
+
 ## Before the demo
 
 1. `npm run demo:reset` — the record ids below assume a fresh reset.
@@ -33,12 +37,12 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 ## 1. Citizen: assistant and metadata form
 
 1. Sign in as the citizen. The dashboard lists their own records.
-2. **Help & Learn** opens the assistant. Describe a problem in a sentence ("There is a broken streetlight near my house in Kothrud"); the assistant picks the module, collects the fields, shows a summary and asks for confirmation before it submits. *(Needs AI; see AI-down path.)*
+2. The assistant is the first card on the citizen home page (also under **Help**). Describe a problem in a sentence ("There is a broken streetlight near my house in Kothrud"); the assistant picks the module, collects the fields, shows a summary and asks for confirmation before it submits. *(Needs AI; see AI-down path.)*
 3. **Initiatives → Start a Civic Initiative** (`/entities/new`) is the manual form. Choose a capability: the fields come from that module's form metadata. Set the area to **Kothrud** so the demo coordinator can act on it, then submit.
 
 ## 2. Two-level approval, rule, audit
 
-1. Sign in as the area coordinator. **Cases Queue** shows the submitted Kothrud records.
+1. Sign in as the area coordinator. The home page ("My desk") says how many records are waiting and lists them, oldest first; **Review next** opens the first one.
 2. Open **Safe Streets Pune** (#20) and approve it. Status becomes "Coord Approved".
 3. Optional: open **Garbage Accumulation near JM Road Market** (Shivajinagar). The approval is refused because the coordinator is assigned to Kothrud.
 4. Sign in as the director. Open #20 and use **Executive Approval (Director)**.
@@ -48,9 +52,9 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 
 ## 3. Module Builder
 
-1. Sign in as the admin. **Modules & Capabilities** lists the seeded modules.
-2. **No-Code Builder**: define a new module (name, sections, fields, workflow, optional rule) and deploy it.
-3. **Modules & Capabilities**: the "How modules are linked" diagram now shows the new module, and an arrow for its rule, with the same rule in the table underneath. No code changed.
+1. Sign in as the admin. The home page ("Platform") lists the modules, rules and people; **Modules** in the menu shows the same modules as cards.
+2. **Build a module** (or **Module builder** in the menu): define a new module (name, sections, fields, workflow, optional rule) and deploy it.
+3. **Modules**: the "How modules are linked" diagram now shows the new module, and an arrow for its rule, with the same rule in the table underneath. No code changed.
 4. Sign in as the citizen: the new module is offered in the manual form's capability list.
 
 ## 4. AI layer
@@ -61,13 +65,13 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 ## 5. Dashboards, reports, Civic Buzz
 
 1. Each role lands on its own dashboard after sign-in.
-2. **Civic Reports** runs a report defined in metadata; a record page also offers its module's reports.
+2. **Reports** runs a report defined in metadata; a record page also offers its module's reports.
 3. In the report results, **Download PDF** and **Download Excel** save the rows shown on screen.
 4. **Civic Buzz** (citizen): two seeded posts linked to approved records, with upvote and share. Creating a new post needs the AI safety check, so it needs a key.
 
 ## 6. Rule graph and ward activity
 
-1. As the admin, **Modules & Capabilities** → "How modules are linked": boxes are modules, arrows are rules (solid = created and approved automatically, dashed = waits for review). Click a box to open that module's records. The table below lists the same rules.
+1. As the admin, **Modules** → "How modules are linked": boxes are modules, arrows are rules (solid = created and approved automatically, dashed = waits for review). Click a box to open that module's records. The table below lists the same rules.
 2. **View in 3D** switches the diagram to a 3D view (drag to rotate, scroll to zoom); **View in 2D** switches back. The button is absent on narrow screens, without WebGL, or with reduced motion on; rehearse it on the demo laptop.
 3. As the director, the dashboard shows **Civic activity across wards**: one bar per ward (dark part = waiting for approval), with the same figures in a sortable table. Switch the report between grievances and initiatives; select a ward to open its records.
 

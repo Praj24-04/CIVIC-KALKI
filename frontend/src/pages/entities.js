@@ -80,7 +80,7 @@ export async function renderEntities(params = {}, searchParams = null) {
   const selectedType = entityTypes.find(t => String(t.entity_type_id) === String(currentParams.entity_type_id));
   const capability = getCapabilityPresentation(selectedType);
 
-  let pageTitleText = 'All Cases & Requests';
+  let pageTitleText = 'All records';
   let pageSubtitleText = 'Browse, search, and track all civic cases and requests across your workspace.';
 
   if (isInitiativeQuery) {
@@ -92,7 +92,7 @@ export async function renderEntities(params = {}, searchParams = null) {
       if (initType) currentParams.entity_type_id = initType.entity_type_id;
     }
   } else if (isCitizen) {
-    pageTitleText = selectedType ? `My ${capability.title} Requests` : 'My Civic Activity';
+    pageTitleText = selectedType ? `My ${capability.title} Requests` : 'My requests';
     pageSubtitleText = selectedType
       ? `Tracking cases initiated by you for capability "${capability.title}".`
       : 'Track, review, and manage your civic requests, contributions, and community actions.';

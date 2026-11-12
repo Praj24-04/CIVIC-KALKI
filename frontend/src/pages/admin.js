@@ -17,7 +17,7 @@ export async function renderAdmin() {
   app.innerHTML = renderLayout(`
     <div class="page-header mb-6">
       <div class="page-header-left">
-        <h1>User Management</h1>
+        <h1>Users and roles</h1>
         <p>Manage system users, search accounts, assign roles, and allocate areas to coordinators.</p>
       </div>
     </div>
@@ -36,7 +36,7 @@ export async function renderAdmin() {
     <div id="admin-content">
       <div class="loading-overlay"><div class="spinner spinner-lg"></div></div>
     </div>
-  `, 'Admin');
+  `, 'Users and roles');
   attachLayoutEvents();
   attachSearchEvents();
 

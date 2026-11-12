@@ -515,3 +515,28 @@ a.ws-item, a.ws-item:hover, a.ws-action, a.ws-action:hover, a.ws-fact, a.ws-fact
 .ck-section-buzz .ck-btn-hero:hover { background: var(--accent-hover) !important; }
 .ck-section-cta .ck-btn-hero, .ck-section-cta a.ck-cta-white { color: var(--primary-dark) !important; }
 .ck-text-accent { color: var(--primary); }
+
+/* ── Top bar details and mobile shell ───────────────────────── */
+.topbar-crumbs { display: flex; align-items: center; gap: var(--space-2); font-size: 0.93rem; min-width: 0; white-space: nowrap; }
+.topbar-crumb-root { color: var(--text-muted); text-decoration: none; }
+.topbar-crumb-sep { color: var(--gray-300); }
+.mobile-menu-btn { display: none; padding: 8px; border-radius: var(--radius-md); }
+.sidebar-scrim { display: none; }
+.ck-buzz-gallery-hero { background: linear-gradient(150deg, #0f3b40 0%, #0b2f36 55%, #0a2530 100%) !important; border-radius: var(--radius-xl) !important; }
+
+@media (max-width: 768px) {
+  .mobile-menu-btn { display: inline-flex; }
+  .topbar-crumb-root, .topbar-crumb-sep { display: none; }
+  .topbar { gap: var(--space-2); }
+  .topbar-actions { gap: var(--space-2); }
+  /* Keep the top bar to icons on a phone: the menu carries the names. */
+  .topbar .user-trigger-btn > *:not(.user-avatar) { display: none; }
+  .topbar .user-trigger-btn { padding: 4px; }
+  .topbar .lang-btn-label { display: none; }
+  .sidebar { z-index: 300; box-shadow: var(--shadow-lg); }
+  .sidebar-scrim.show { display: block; position: fixed; inset: 0; z-index: 250; background: rgba(20, 33, 43, .38); }
+  .ws-focus { display: grid; grid-template-columns: auto 1fr; gap: 12px 16px; }
+  .ws-focus .btn { grid-column: 1 / -1; justify-content: center; }
+  .ws-chips { padding: 0 16px 12px; }
+  .ws-item-side { justify-content: space-between; }
+}
