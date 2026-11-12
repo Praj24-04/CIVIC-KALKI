@@ -105,74 +105,65 @@ export function renderHome() {
       </header>
 
       <!-- ═══════════ HERO ═══════════ -->
-      <section class="ck-home-hero ck-hero2">
-        <div class="ck-hero2-inner">
-          <div class="ck-hero2-copy">
-            <div class="ck-hero-pill">
-              <span class="ck-hero-pill-dot"></span>
-              One civic operating system
-            </div>
+      <section class="ck-home-hero ck-hero-classic">
 
-            <h1 class="ck-hero-headline">
-              Don't hesitate<br>
-              to <span class="ck-hero-accent">speak up.</span>
-            </h1>
+        <!-- Floating pills (decorative) -->
+        <div class="ck-hero-float ck-float-1" aria-hidden="true">
+          <span class="ck-float-badge ck-pill-teal">${SVG.tool} REPORT</span>
+        </div>
+        <div class="ck-hero-float ck-float-2" aria-hidden="true">
+          <span class="ck-float-badge ck-pill-cream">${SVG.sprout} INITIATIVE</span>
+        </div>
+        <div class="ck-hero-float ck-float-3" aria-hidden="true">
+          <span class="ck-float-badge ck-pill-orange">${SVG.users} VOLUNTEER</span>
+        </div>
+        <div class="ck-hero-float ck-float-4" aria-hidden="true">
+          <span class="ck-float-badge ck-pill-cream">${SVG.activity} TRACK</span>
+        </div>
+        <div class="ck-hero-float ck-float-5" aria-hidden="true">
+          <span class="ck-float-badge ck-pill-teal-soft">${SVG.message} SPEAK UP</span>
+        </div>
 
-            <p class="ck-hero-sub">
-              Your city has problems. You have ideas. CivicKalki turns both into
-              structured civic action — one engine connecting citizens, wards and
-              departments, with every step on the record.
-            </p>
-
-            <div class="ck-hero-actions">
-              ${loggedIn ? `
-                <a href="/dashboard" class="ck-btn-hero">Open my workspace →</a>
-              ` : `
-                <a href="/signup" class="ck-btn-hero">Start your civic journey</a>
-                <a href="/login" class="ck-btn-hero-ghost">I have an account →</a>
-              `}
-            </div>
-
-            <!-- Live figures from this installation's public metadata -->
-            <dl class="ck-hero-facts" id="ck-hero-facts" aria-label="This installation">
-              <div><dt>Modules</dt><dd id="ck-fact-modules">—</dd></div>
-              <div><dt>Rules linking them</dt><dd id="ck-fact-rules">—</dd></div>
-              <div><dt>Wards</dt><dd id="ck-fact-wards">—</dd></div>
-            </dl>
+        <div class="ck-hero-content">
+          <div class="ck-hero-pill">
+            <span class="ck-hero-pill-dot"></span>
+            One civic operating system
           </div>
 
-          <div class="ck-hero2-stage">
-            <div class="ck-hero2-scene" id="ck-hero-scene" role="img"
-                 aria-label="A model of the civic ecosystem: one engine in the centre, the configured modules around it, and the city's wards on the outside, with requests moving between them.">
-              <!-- Static drawing: shown while the 3D scene loads, and instead of it when 3D is not suitable -->
-              <svg class="ck-hero2-fallback" viewBox="0 0 520 520" aria-hidden="true">
-                <defs>
-                  <radialGradient id="ckSun" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stop-color="#f0b450" stop-opacity=".55"/>
-                    <stop offset="100%" stop-color="#f0b450" stop-opacity="0"/>
-                  </radialGradient>
-                </defs>
-                <ellipse cx="260" cy="330" rx="230" ry="96" fill="#f6f1e8" stroke="#e7e1d7"/>
-                <ellipse cx="260" cy="330" rx="188" ry="78" fill="none" stroke="#14212b" stroke-opacity=".14"/>
-                <ellipse cx="260" cy="330" rx="108" ry="45" fill="none" stroke="#14212b" stroke-opacity=".22"/>
-                <circle cx="260" cy="236" r="120" fill="url(#ckSun)"/>
-                <g stroke="#0f5257" stroke-opacity=".35">
-                  <line x1="260" y1="236" x2="152" y2="300"/><line x1="260" y1="236" x2="368" y2="300"/>
-                  <line x1="260" y1="236" x2="205" y2="356"/><line x1="260" y1="236" x2="315" y2="356"/>
-                  <line x1="260" y1="236" x2="260" y2="286"/>
-                </g>
-                <path d="M152 300 Q260 190 368 300" fill="none" stroke="#e8623a" stroke-width="2"/>
-                <polygon points="260,196 295,216 295,256 260,276 225,256 225,216" fill="#0f5257"/>
-                <g fill="#2f7f84"><circle cx="152" cy="300" r="13"/><circle cx="368" cy="300" r="13"/><circle cx="205" cy="356" r="13"/><circle cx="315" cy="356" r="13"/></g>
-                <g fill="#e9e2d6" stroke="#d9cfbf">
-                  <rect x="52" y="318" width="46" height="16" rx="3"/><rect x="422" y="318" width="46" height="16" rx="3"/>
-                  <rect x="120" y="386" width="46" height="16" rx="3"/><rect x="354" y="386" width="46" height="16" rx="3"/>
-                  <rect x="237" y="408" width="46" height="16" rx="3"/>
-                </g>
-              </svg>
+          <h1 class="ck-hero-headline">
+            Don't hesitate<br>
+            to <span class="ck-hero-accent">speak up.</span>
+          </h1>
+
+          <p class="ck-hero-sub">
+            Your city has problems. You have ideas. CivicKalki turns both into
+            structured civic action — one engine connecting citizens, wards and
+            departments, with every step on the record.
+          </p>
+
+          <!-- Mascot: eyes follow the pointer (decorative) -->
+          <div class="ck-hero-mascot" aria-hidden="true">
+            <div class="ck-mascot-body">
+              <div class="ck-mascot-eye"><div class="ck-mascot-pupil" id="ck-pupil-l"></div></div>
+              <div class="ck-mascot-eye"><div class="ck-mascot-pupil" id="ck-pupil-r"></div></div>
             </div>
-            <p class="ck-hero2-caption" id="ck-hero-caption">One engine, every civic module, each ward — drawn from this installation's own configuration.</p>
           </div>
+
+          <div class="ck-hero-actions">
+            ${loggedIn ? `
+              <a href="/dashboard" class="ck-btn-hero">Open my workspace →</a>
+            ` : `
+              <a href="/signup" class="ck-btn-hero">Start your civic journey</a>
+              <a href="/login" class="ck-btn-hero-ghost">I have an account →</a>
+            `}
+          </div>
+
+          <!-- Live figures from this installation's public metadata -->
+          <dl class="ck-hero-facts" id="ck-hero-facts" aria-label="This installation">
+            <div><dt>Modules</dt><dd id="ck-fact-modules">—</dd></div>
+            <div><dt>Rules linking them</dt><dd id="ck-fact-rules">—</dd></div>
+            <div><dt>Wards</dt><dd id="ck-fact-wards">—</dd></div>
+          </dl>
         </div>
       </section>
 
@@ -588,57 +579,65 @@ export function renderHome() {
   attachHomeEvents();
 }
 
-// The mounted 3D scene, if any (one at a time; replaced when the page is drawn again).
-let activeScene = null;
-
 /**
- * Fill the hero's figures and mount the 3D scene from public metadata.
- * 3D is used only when it will work well: WebGL available, a wide enough
- * screen, and the visitor has not asked for reduced motion.
+ * Fill the hero's figures from public metadata: configured modules,
+ * the rules linking them, and active wards. Shows "—" if unavailable.
  */
-async function initHeroScene() {
-  if (activeScene) { activeScene.destroy(); activeScene = null; }
-  const mount = document.getElementById('ck-hero-scene');
-  if (!mount) return;
-
+async function initHeroFacts() {
   const json = (url) => fetch(url, { credentials: 'include' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const [meta, tree] = await Promise.all([json('/api/forms/metadata'), json('/api/jurisdictions?tree=true')]);
-  if (!mount.isConnected) return;
-
-  const types = meta?.data?.entityTypes || [];
-  const rules = meta?.data?.rules || [];
-  const wards = [];
-  const walk = (nodes) => (nodes || []).forEach((n) => { if (n.type === 'ward' && n.status !== 'inactive') wards.push(n.name); walk(n.children); });
+  let wards = 0;
+  const walk = (nodes) => (nodes || []).forEach((n) => { if (n.type === 'ward' && n.status !== 'inactive') wards += 1; walk(n.children); });
   walk(Array.isArray(tree?.data) ? tree.data : []);
-
   const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = String(value); };
-  if (meta) { set('ck-fact-modules', types.length); set('ck-fact-rules', rules.length); }
-  if (tree) set('ck-fact-wards', wards.length);
+  if (meta) { set('ck-fact-modules', (meta.data?.entityTypes || []).length); set('ck-fact-rules', (meta.data?.rules || []).length); }
+  if (tree) set('ck-fact-wards', wards);
+}
 
-  let canWebGL = false;
-  try { const c = document.createElement('canvas'); canWebGL = Boolean(c.getContext('webgl2') || c.getContext('webgl')); } catch { canWebGL = false; }
-  const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!canWebGL || reduced || window.innerWidth < 760 || !types.length) return;
+// Pointer-following pupils; removed when the page is drawn again.
+let eyesCleanup = null;
 
-  try {
-    const [{ mountCivicScene }, { getCapabilityPresentation }] = await Promise.all([
-      import('../components/civicScene.js'),
-      import('../utils/terminology.js'),
-    ]);
-    if (!mount.isConnected) return;
-    activeScene = mountCivicScene(mount, {
-      modules: types.map((t) => ({ id: t.entity_type_id, name: getCapabilityPresentation(t).shortTitle || t.name, count: t._count?.entities || 0 })),
-      rules: rules.filter((r) => r.auto_create).map((r) => ({ source: r.source_entity_type_id, target: r.target_entity_type_id })),
-      wards,
-    });
-    mount.classList.add('is-live');
-  } catch (err) {
-    // The static drawing stays.
-  }
+function initMascotEyes() {
+  if (eyesCleanup) { eyesCleanup(); eyesCleanup = null; }
+  const pupils = [document.getElementById('ck-pupil-l'), document.getElementById('ck-pupil-r')].filter(Boolean);
+  if (pupils.length !== 2) return;
+  const mq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  if (mq && mq.matches) return; // static eyes
+
+  let px = 0, py = 0, frame = 0, last = 0;
+  const draw = () => {
+    frame = 0;
+    if (!pupils[0].isConnected) { eyesCleanup && eyesCleanup(); return; }
+    for (const pupil of pupils) {
+      const eye = pupil.parentElement.getBoundingClientRect();
+      const dx = px - (eye.left + eye.width / 2);
+      const dy = py - (eye.top + eye.height / 2);
+      const max = Math.min(eye.width, eye.height) * 0.24; // keep pupil inside the eye
+      const len = Math.hypot(dx, dy) || 1;
+      const d = Math.min(len * 0.15, max);
+      pupil.style.transform = `translate(${(dx / len) * d}px, ${(dy / len) * d}px)`;
+    }
+  };
+  const onMove = (e) => {
+    const now = performance.now();
+    if (now - last < 32) return; // throttle to ~30 Hz
+    last = now; px = e.clientX; py = e.clientY;
+    if (!frame) frame = requestAnimationFrame(draw);
+  };
+  const onMotionPref = () => { if (mq.matches) { pupils.forEach((p) => { p.style.transform = ''; }); eyesCleanup && eyesCleanup(); } };
+  document.addEventListener('pointermove', onMove, { passive: true });
+  mq && mq.addEventListener && mq.addEventListener('change', onMotionPref);
+  eyesCleanup = () => {
+    document.removeEventListener('pointermove', onMove);
+    mq && mq.removeEventListener && mq.removeEventListener('change', onMotionPref);
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0; eyesCleanup = null;
+  };
 }
 
 function attachHomeEvents() {
-  initHeroScene();
+  initHeroFacts();
+  initMascotEyes();
 
   // ── Header scroll effect ──
   const header = document.getElementById('ck-home-header');
@@ -686,28 +685,6 @@ function attachHomeEvents() {
       faqList.querySelectorAll('.ck-faq-item').forEach(i => i.classList.remove('open'));
       if (!wasOpen) item.classList.add('open');
     });
-  }
-
-  // ── Mascot eye tracking ──
-  const pupilL = document.getElementById('ck-pupil-l');
-  const pupilR = document.getElementById('ck-pupil-r');
-  if (pupilL && pupilR) {
-    document.addEventListener('mousemove', e => {
-      const movePupil = (pupil) => {
-        const eye = pupil.parentElement;
-        const rect = eye.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const dx = e.clientX - cx;
-        const dy = e.clientY - cy;
-        const angle = Math.atan2(dy, dx);
-        const maxDist = rect.width * 0.22;
-        const dist = Math.min(Math.sqrt(dx*dx + dy*dy) * 0.15, maxDist);
-        pupil.style.transform = `translate(${Math.cos(angle) * dist}px, ${Math.sin(angle) * dist}px)`;
-      };
-      movePupil(pupilL);
-      movePupil(pupilR);
-    }, { passive: true });
   }
 
   // ── Smooth scroll for anchor links ──

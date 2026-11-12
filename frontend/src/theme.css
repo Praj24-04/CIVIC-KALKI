@@ -493,6 +493,52 @@ a.ws-item, a.ws-item:hover, a.ws-action, a.ws-action:hover, a.ws-fact, a.ws-fact
 .ck-hero2-scene.is-live .ck-hero2-fallback { opacity: 0; }
 .ck-hero2-caption { margin-top: 6px; text-align: center; font-size: 0.84rem; color: var(--text-muted); }
 
+/* Classic hero (restored), re-themed with the design tokens */
+.ck-hero-classic {
+  min-height: calc(100vh - 74px);
+  background:
+    radial-gradient(720px 400px at 50% 8%, rgba(240, 180, 80, .22), transparent 65%),
+    radial-gradient(640px 420px at 0% 0%, rgba(var(--primary-rgb), .08), transparent 60%),
+    var(--bg) !important;
+}
+.ck-hero-classic .ck-hero-content { position: relative; z-index: 6; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.ck-hero-classic .ck-hero-pill {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);
+  border-radius: var(--radius-pill); font-weight: 600; box-shadow: var(--shadow-xs);
+}
+.ck-hero-classic .ck-hero-pill-dot { background: var(--accent); }
+.ck-hero-classic .ck-hero-headline {
+  font-size: clamp(2.8rem, 6vw, 5rem); font-weight: 560; line-height: 1.02; letter-spacing: -0.025em;
+  color: var(--text-primary); margin: 18px 0;
+}
+.ck-hero-classic .ck-hero-accent { color: var(--primary); font-style: italic; font-weight: 500; }
+.ck-hero-classic .ck-hero-accent::after { display: none; }
+.ck-hero-classic .ck-hero-sub { font-size: 1.12rem; line-height: 1.6; color: var(--text-secondary); max-width: 56ch; margin: 0 auto 8px; }
+.ck-hero-classic .ck-hero-actions { margin-bottom: 32px; }
+.ck-hero-classic .ck-hero-facts { justify-content: center; }
+
+.ck-hero-classic .ck-float-badge { border-radius: var(--radius-pill); font-weight: 650; letter-spacing: .04em; box-shadow: var(--shadow-sm); }
+.ck-pill-teal      { background: var(--primary) !important; color: #fff !important; border: 1px solid var(--primary-dark) !important; }
+.ck-pill-teal-soft { background: var(--primary-100) !important; color: var(--primary-dark) !important; border: 1px solid var(--primary-border) !important; }
+.ck-pill-cream     { background: var(--surface-2) !important; color: var(--primary) !important; border: 1px solid var(--border-strong) !important; }
+.ck-pill-orange    { background: var(--accent-soft) !important; color: var(--accent-strong) !important; border: 1px solid rgba(var(--accent-rgb), .35) !important; }
+
+.ck-hero-classic .ck-mascot-body {
+  background: linear-gradient(180deg, var(--primary-500) 0%, var(--primary) 100%);
+  box-shadow: 0 16px 36px rgba(var(--primary-rgb), .28);
+  border: 3px solid rgba(255, 255, 255, .3);
+}
+.ck-hero-classic .ck-mascot-eye { background: var(--surface); }
+.ck-hero-classic .ck-mascot-pupil { background: var(--gray-900); will-change: transform; }
+@media (prefers-reduced-motion: reduce) {
+  .ck-hero-classic .ck-mascot-pupil { transform: none !important; transition: none; }
+  .ck-hero-classic .ck-mascot-body { transition: none; }
+  .ck-hero-classic .ck-mascot-body:hover { transform: none; }
+}
+@media (max-width: 600px) {
+  .ck-hero-classic { min-height: 0; padding: 40px 16px 48px; }
+}
+
 /* Sections below the hero: same content, new palette */
 .ck-home-section { background: transparent; }
 .ck-section-cta { background: linear-gradient(135deg, #0f5257, #083236) !important; }
