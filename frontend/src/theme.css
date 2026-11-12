@@ -544,12 +544,17 @@ a.ws-item, a.ws-item:hover, a.ws-action, a.ws-action:hover, a.ws-fact, a.ws-fact
   .ck-hero-facts dd { font-size: 1.6rem; }
 }
 /* On the dark Buzz band the accent must be light to stay readable */
-.ck-section-buzz .ck-text-accent { color: var(--sun) !important; }
+.ck-section-buzz .ck-text-accent { color: var(--accent) !important; }
 .ck-section-buzz .ck-section-label { color: var(--sun) !important; }
 .ck-section-buzz .ck-btn-hero { background: var(--accent) !important; color: #fff !important; box-shadow: none !important; }
 .ck-section-buzz .ck-btn-hero:hover { background: var(--accent-hover) !important; }
 .ck-section-cta .ck-btn-hero, .ck-section-cta a.ck-cta-white { color: var(--primary-dark) !important; }
-.ck-text-accent { color: var(--primary); }
+.ck-text-accent { color: var(--accent); }
+
+/* Feature tabs: orange icons and active glow, as on the original homepage */
+.ck-tab-btn .ck-icon, .ck-tab-btn .ck-icon * { color: var(--accent) !important; stroke: var(--accent) !important; }
+.ck-tab-btn.active { border-color: rgba(var(--accent-rgb), .28); box-shadow: 0 4px 14px rgba(0, 0, 0, .06), 0 2px 6px rgba(var(--accent-rgb), .1); }
+.ck-tab-btn.active .ck-icon { filter: drop-shadow(0 2px 6px rgba(var(--accent-rgb), .35)); }
 
 /* ── Top bar details and mobile shell ───────────────────────── */
 .topbar-crumbs { display: flex; align-items: center; gap: var(--space-2); font-size: 0.93rem; min-width: 0; white-space: nowrap; }

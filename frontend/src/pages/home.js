@@ -174,7 +174,7 @@ export function renderHome() {
       <section class="ck-home-section ck-section-features" id="features">
         <div class="ck-section-inner">
           <div class="ck-section-label">PLATFORM CAPABILITIES</div>
-          <h2 class="ck-section-heading">Everything civic.<br>One intelligent platform.</h2>
+          <h2 class="ck-section-heading">Everything civic.<br><span class="ck-text-accent">One intelligent platform.</span></h2>
           <p class="ck-section-sub">From reporting a broken streetlight to tracking city-wide governance — CIVIC-KALKI is the operating system your city didn't know it needed.</p>
 
           <div class="ck-tabs" id="ck-feature-tabs">
@@ -436,7 +436,7 @@ export function renderHome() {
           <div class="ck-about-layout">
             <div class="ck-about-text">
               <div class="ck-section-label ck-label-left">ABOUT CIVIC-KALKI</div>
-              <h2 class="ck-section-heading" style="text-align:left;">Built by citizens.<br>For citizens.</h2>
+              <h2 class="ck-section-heading" style="text-align:left;">Built by citizens.<br><span class="ck-text-accent">For citizens.</span></h2>
               <p class="ck-about-body">
                 CIVIC-KALKI isn't just another government portal that nobody uses. It's a <strong>metadata-driven civic operating system</strong> that transforms how cities work — from the ground up.
               </p>
