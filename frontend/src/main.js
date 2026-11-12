@@ -1,6 +1,8 @@
 // Fonts are bundled with the app so the interface looks the same with no network.
 import '@fontsource-variable/inter';
-import '@fontsource-variable/fraunces';
+// opsz axis: large headlines get Fraunces' sharp display cut, as with the original Google Fonts load.
+import '@fontsource-variable/fraunces/opsz.css';
+import '@fontsource-variable/fraunces/opsz-italic.css';
 import './style.css';
 import './theme.css';
 import 'leaflet/dist/leaflet.css';
