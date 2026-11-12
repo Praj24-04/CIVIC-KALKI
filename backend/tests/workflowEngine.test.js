@@ -504,6 +504,54 @@ describe('Phase 1 — Metadata-Driven Workflow Engine Tests', () => {
     await prisma.parameterValue.deleteMany({ where: { entity_id: decoy.entity_id } });
   });
 
+  // ── Test 14 (bug 4): a rule-created record enters its own workflow and can be acted on ──
+  test('Test 14: a record created by a rule starts in the first status of its type and reaches a coordinator', async () => {
+    const parent = await prisma.entity.create({
+      data: { entity_type_id: movementEntityType.entity_type_id, owner_user_id: citizenUser.user_id, name: 'Test Movement Child Workflow', area: 'Sector 5', status: 'coordinator_approved' },
+    });
+    const approve = await request(app).post(`/entities/${parent.entity_id}/transition`).set(directorHeaders).send({ to_status: 'approved' });
+    expect(approve.status).toBe(200);
+
+    const children = await prisma.entity.findMany({ where: { source_entity_id: parent.entity_id }, include: { entityType: true } });
+    expect(children.length).toBeGreaterThan(0);
+    for (const child of children) {
+      // Not the old dead-end placeholder, and a status the child's own workflow knows.
+      expect(child.status).not.toBe('pending');
+      const steps = await prisma.workflowMaster.findMany({ where: { entity_type_id: child.entity_type_id } });
+      expect(steps.some((s) => s.trigger === child.status)).toBe(true);
+      expect(child.status).toBe('submitted');
+
+      // The area coordinator of the inherited area is offered an action on it…
+      const wf = await request(app).get(`/entities/${child.entity_id}/workflow`).set(coordinatorAreaHeaders);
+      expect(wf.status).toBe(200);
+      // …it is in their notification queue…
+      const feed = await request(app).get('/entities/notifications?limit=100').set(coordinatorAreaHeaders);
+      const entry = feed.body.data.find((n) => n.entity_id === child.entity_id);
+      expect(entry).toBeDefined();
+      expect(entry.kind).toBe('queue');
+      // …and they can actually move it on.
+      const move = await request(app).post(`/entities/${child.entity_id}/transition`).set(coordinatorAreaHeaders).send({ to_status: 'coordinator_approved' });
+      expect(move.status).toBe(200);
+    }
+  });
+
+  test('Test 15: first workflow status comes from metadata, with a fallback', async () => {
+    const { firstWorkflowStatus } = require('../services/ruleEngine');
+    expect(await firstWorkflowStatus(prisma, movementEntityType.entity_type_id)).toBe('submitted');
+    expect(await firstWorkflowStatus(prisma, customEntityType.entity_type_id)).toBe('submitted');
+    // A workflow with no draft step starts where nothing leads into.
+    const odd = await prisma.entityType.create({ data: { domain_id: 1, name: `No Draft Type ${Date.now()}` } });
+    await prisma.workflowMaster.createMany({ data: [
+      { entity_type_id: odd.entity_type_id, trigger: 'recorded', action: 'verified', stage: 'director' },
+      { entity_type_id: odd.entity_type_id, trigger: 'verified', action: 'closed', stage: 'director' },
+    ] });
+    expect(await firstWorkflowStatus(prisma, odd.entity_type_id)).toBe('recorded');
+    await prisma.workflowMaster.deleteMany({ where: { entity_type_id: odd.entity_type_id } });
+    // No workflow at all keeps the old placeholder.
+    expect(await firstWorkflowStatus(prisma, odd.entity_type_id)).toBe('pending');
+    await prisma.entityType.delete({ where: { entity_type_id: odd.entity_type_id } });
+  });
+
   // ── Test 8: GET /entities/:id/workflow API endpoint ──
   test('Test 8: GET /entities/:id/workflow returns metadata transitions', async () => {
     const entity = await prisma.entity.create({

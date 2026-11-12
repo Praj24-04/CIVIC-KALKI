@@ -130,7 +130,9 @@ async function fireRulesInTransaction(tx, entityId, eventType, depth) {
 
     const targetTypeName = rule.targetEntityType.name;
     const newEntityName = `${sourceEntity.name} - ${targetTypeName}`;
-    const newStatus = rule.auto_approve ? 'approved' : 'pending';
+    // A record the engine creates enters its own module's workflow at the first
+    // status, exactly as if a citizen had filed it, so the usual role can pick it up.
+    const newStatus = rule.auto_approve ? 'approved' : await firstWorkflowStatus(tx, rule.target_entity_type_id);
 
     // Visibility-aware coordinate inheritance:
     // Never copy coordinates from a parent whose location_visibility is "restricted"
@@ -217,12 +219,14 @@ async function fireRulesInTransaction(tx, entityId, eventType, depth) {
           entity_id: created.entity_id,
           action: 'auto_created',
           user: 'system/rule-engine',
+          // The status it starts in, so the notification feed can tell whose turn it is.
+          new_status: created.status,
           reason: [
             `Rule ${rule.rule_id} fired:`,
             `source entity #${sourceEntity.entity_id} (${sourceEntity.name})`,
             `event "${eventType}"`,
             `→ auto-created ${targetTypeName} entity #${created.entity_id}`,
-            rule.auto_approve ? '(auto-approved)' : '(status: pending)',
+            rule.auto_approve ? '(auto-approved)' : `(status: ${created.status})`,
           ].join(' | '),
         },
       });
@@ -272,6 +276,27 @@ async function fireRulesInTransaction(tx, entityId, eventType, depth) {
 }
 
 /**
+ * The status a new record of this type starts its workflow in: where the
+ * type's workflow takes a draft (normally "submitted"). Read from WorkflowMaster,
+ * so it is right for every module, including ones built in the app. If the type
+ * has no workflow at all, the old placeholder "pending" is kept.
+ */
+async function firstWorkflowStatus(tx, entityTypeId) {
+  const steps = await tx.workflowMaster.findMany({
+    where: { entity_type_id: entityTypeId },
+    orderBy: { workflow_id: 'asc' },
+    select: { trigger: true, action: true },
+  });
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  const fromDraft = steps.find((s) => norm(s.trigger) === 'draft' && norm(s.action));
+  if (fromDraft) return norm(fromDraft.action);
+  // No draft step: start at a status that the workflow leaves but never enters.
+  const entered = new Set(steps.map((s) => norm(s.action)));
+  const root = steps.map((s) => norm(s.trigger)).find((t) => t && !entered.has(t));
+  return root || 'pending';
+}
+
+/**
  * Checks whether location/coordinates may be copied from parent to child entity.
  * Copying is allowed ONLY when it cannot make the location more visible.
  *
@@ -292,4 +317,4 @@ function shouldCopyLocation(parentVisibility, childVisibility) {
   return true;
 }
 
-module.exports = { checkAndFireRules, shouldCopyLocation };
+module.exports = { checkAndFireRules, shouldCopyLocation, firstWorkflowStatus };

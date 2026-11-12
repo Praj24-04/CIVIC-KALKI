@@ -113,8 +113,11 @@ async function getNotificationFeed(user, options = {}) {
             ? `A linked ${base.entity_type} "${entity.name}" was created automatically from "${source.name}".`
             : `A linked ${base.entity_type} "${entity.name}" was created automatically.`,
         });
+        continue;
       }
-      continue;
+      // Everyone else: fall through. The new record entered its workflow at
+      // row.new_status, so whoever acts on that status gets it in their queue.
+      if (!row.new_status) continue;
     }
 
     // ── A status change ─────────────────────────────────────────────────────
