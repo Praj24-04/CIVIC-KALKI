@@ -33,6 +33,8 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | — | Demo rehearsal fixes | **Done** 11 Nov: the No-Code Builder wizard could not get past step 4 (its inline handlers used names that were not global); fixed and clicked through to a deployed module with a rule. Two published Civic Buzz posts are seeded so the page is not empty without AI |
 | — | Product-readiness review | **Done** 12 Nov: see `docs/READINESS_REVIEW.md`. No code changed. Open blocker: AI has never been run with a real Gemini key |
 | — | Interface redesign | **Done** 12 Nov, by request: design system (`frontend/src/theme.css`, tokens in `style.css`), homepage 3D scene from real metadata (`components/civicScene.js`), five role-specific home pages (`pages/dashboard.js`), shorter navigation, working mobile menu. The citizen home page's invented sample data was removed. No API, permission or workflow changed |
+| — | Review fixes, batch 1 | **Done** 12 Nov: `npm run ai:check`; review bugs 1, 2, 10, 11, 12 fixed (one commit each) |
+| — | Review fixes, batch 2 | **Done** 12 Nov: review bugs 3, 4, 8 fixed (one commit each). Bugs 5, 6, 7, 9 are not fixed; see "Known limitations" |
 | 3 | Remaining Should/Could items (F2, B3, B4, M1, G2, B5, B6, F1), V2 3D columns | On hold until the review findings are decided |
 
 ## Tier 1 — correctness and a demo that cannot fail
@@ -149,6 +151,25 @@ Tier 1 and Tier 2 are roughly three working days in small slices. If time runs s
 1. **Schema for B2.** Add two nullable columns to `Entity` (`source_entity_id`, `source_rule_id`, unique together), no new table? Recommended: yes. Without it, idempotent rule firing, lineage and the graph all rest on matching text in audit rows.
 2. **Anonymous access (S1, S2).** Recommended: every write requires login; anonymous visitors can read only public approved items, without emails. Any test that relied on anonymous writes is updated to log in first.
 3. **Demo database.** Recommended: local Postgres as the primary on demo day, Supabase kept as the backup, both seeded from the same scripts.
+
+## Known limitations
+
+From `docs/READINESS_REVIEW.md` (bug numbers are the review's). These are known and deliberately not fixed before the demo.
+
+| Review bug | Limitation | What it means in practice |
+|---|---|---|
+| 5 | **There is no resolution step.** A record's workflow ends at "approved". Nothing records that the problem was fixed, by whom, or when. | Say "approved", not "resolved". **Can a resolve step be added as workflow metadata only? No.** A `WorkflowMaster` row `approved → resolved` is ignored: `services/workflowEngine.js` treats "approved" as a terminal state and refuses any move out of it (checked 12 Nov). It needs that one code change, and "approved" is also the only status treated as public and as the trigger for rules. |
+| 6 | **The general coordinator has no work a citizen can create.** They handle records with no ward, and the form now requires a ward (bug 3 fix), so only a record with no area reaches them: for example one created by a rule from a source that has no area. | Leave the general coordinator out of the demo. The approval itself works on such a record. |
+| 7 | **Two entries on the Reports page are wrong.** "Unreconciled Transactions" shows 18 meaningless rows where 8 are expected: the report engine ignores its filter and the page can only draw grouped counts. "Governance Exception Config" is a configuration row listed as a report. | Do not open these two reports. The other six are correct and export correctly. |
+| 9 | **A rejected record is a dead end.** The citizen cannot correct and resubmit it, and the reason is shown only in the activity log tab. | If a rejection is shown in the demo, open the activity log to show the reason; file a new request to continue. |
+
+Also still true:
+
+- Free-text fields can contain personal details a citizen typed in; only fields recognised as contact, identity or attachment fields are withheld from public output.
+- Staff of any ward can open any record if they know its id (lists are scoped; direct links are not).
+- Deployed modules cannot be edited or removed from the app.
+- The ward activity widget has no 3D columns.
+- GitHub Actions has not been seen running on the fork.
 
 ## Working agreement
 

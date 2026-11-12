@@ -224,6 +224,17 @@ One thing was established: with a deliberately invalid key the server does reach
 3. In the demo: always pick a ward (Kothrud); say "approved", not "resolved"; do not open "Unreconciled Transactions" or "Governance Exception Config"; do not try to process the record a rule creates; leave the general coordinator out.
 4. Enable Actions on the fork when convenient (section 7).
 
+## Status after the fixes (12 Nov, later the same day)
+
+This review is a record of what was found. Since then, on the same branch:
+
+| Review bug | Status |
+|---|---|
+| 1, 2, 3, 4, 8, 10, 11, 12 | **Fixed**, one commit each, with tests |
+| 5, 6, 7, 9 | Not fixed; listed under "Known limitations" in `docs/PLAN.md` |
+
+`npm run ai:check` was added for item 9 (real Gemini): it could not be run to success here either, because no key is available.
+
 ## Bugs found, in order of importance
 
 | # | Bug | Section |

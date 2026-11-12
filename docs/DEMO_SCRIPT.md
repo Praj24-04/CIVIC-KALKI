@@ -6,6 +6,21 @@ Last checked 11 Nov 2026 on a local Postgres with no Gemini key. Every section b
 
 The interface was redesigned: new colours and type, a 3D model of the installation on the public homepage, and a different home page for each role. Menu names are shorter (**My desk**, **Approvals**, **Platform**, **All records**, **Modules**, **Module builder**, **Reports**, **Users and roles**; for citizens **Near me**, **My requests**, **Help**). The steps below use the new names. The staff home pages have a **Review next** / **Decide next** button that opens the record that has waited longest.
 
+## Demo constraints
+
+From the readiness review. Follow these and nothing in the script hits a known gap.
+
+1. **Test AI with the real key first:** `npm run ai:check` on the demo laptop. If it says NOT READY, either fix what it names (usually `GEMINI_MODEL`) or remove the key and use the AI-down path.
+2. **Always choose a ward** when filing (India → Maharashtra → Pune → Kothrud). The form now refuses a partial location, with a message.
+3. **Say "approved", not "resolved".** There is no resolution step.
+4. **Do not open** the reports "Unreconciled Transactions" or "Governance Exception Config".
+5. **Leave the general coordinator out.** Nothing a citizen files reaches that role.
+6. **A rejected request cannot be resubmitted.** Show the reason in the activity log if you demo a rejection.
+7. **Rehearse on a database you will reset.** A module deployed in rehearsal stays until the database is rebuilt; `npm run demo:reset` keeps modules.
+8. If the venue network is poor, remove the Gemini key and use the AI-down path; with a key but no network the director's report now also falls back to the labeled deterministic summary.
+
+Changed since the review, and safe to show: the record a rule creates is now "submitted" in its own workflow and appears in the Kothrud coordinator's queue, so it can be processed like any other; the director's and admin's bells show only real records.
+
 ## Before the demo
 
 1. `npm run demo:reset` — the record ids below assume a fresh reset.
@@ -46,7 +61,7 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 2. Open **Safe Streets Pune** (#20) and approve it. Status becomes "Coord Approved".
 3. Optional: open **Garbage Accumulation near JM Road Market** (Shivajinagar). The approval is refused because the coordinator is assigned to Kothrud.
 4. Sign in as the director. Open #20 and use **Executive Approval (Director)**.
-5. The Movement → Grievance rule fires: a new record "Safe Streets Pune - Grievance" appears, linked from #20.
+5. The Movement → Grievance rule fires: a new record "Safe Streets Pune - Grievance" appears, linked from #20. It starts as "submitted" in the grievance workflow and is in the Kothrud coordinator's queue.
 6. On #20, **Activity & Accountability Log** shows each step with actor and time.
 7. The bell in the header: the coordinator and director see records waiting for their review; after the approvals, the citizen sees each status change and the linked record the rule created. Clicking an entry opens the record.
 
