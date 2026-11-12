@@ -109,36 +109,37 @@ export function renderHome() {
 
         <!-- Floating pills (decorative) -->
         <div class="ck-hero-float ck-float-1" aria-hidden="true">
-          <span class="ck-float-badge ck-pill-teal">${SVG.tool} REPORT</span>
+          <span class="ck-float-badge ck-fb-orange">${SVG.tool} REPORT</span>
         </div>
         <div class="ck-hero-float ck-float-2" aria-hidden="true">
-          <span class="ck-float-badge ck-pill-cream">${SVG.sprout} INITIATIVE</span>
+          <span class="ck-float-badge ck-fb-green">${SVG.sprout} INITIATIVE</span>
         </div>
         <div class="ck-hero-float ck-float-3" aria-hidden="true">
-          <span class="ck-float-badge ck-pill-orange">${SVG.users} VOLUNTEER</span>
+          <span class="ck-float-badge ck-fb-blue">${SVG.users} VOLUNTEER</span>
         </div>
         <div class="ck-hero-float ck-float-4" aria-hidden="true">
-          <span class="ck-float-badge ck-pill-cream">${SVG.activity} TRACK</span>
+          <span class="ck-float-badge ck-fb-purple">${SVG.activity} TRACK</span>
         </div>
         <div class="ck-hero-float ck-float-5" aria-hidden="true">
-          <span class="ck-float-badge ck-pill-teal-soft">${SVG.message} SPEAK UP</span>
+          <span class="ck-float-badge ck-fb-pink">${SVG.message} SPEAK UP</span>
         </div>
 
         <div class="ck-hero-content">
           <div class="ck-hero-pill">
             <span class="ck-hero-pill-dot"></span>
-            One civic operating system
+            The Civic OS That Actually Listens
           </div>
 
           <h1 class="ck-hero-headline">
-            Don't hesitate<br>
-            to <span class="ck-hero-accent">speak up.</span>
+            Don't<br>
+            Hesitate<br>
+            to <span class="ck-hero-accent">Speak Up.</span>
           </h1>
 
           <p class="ck-hero-sub">
-            Your city has problems. You have ideas. CivicKalki turns both into
-            structured civic action — one engine connecting citizens, wards and
-            departments, with every step on the record.
+            Your city has problems. You have ideas.<br class="ck-hide-mobile">
+            CIVIC-KALKI turns both into structured civic action<br class="ck-hide-mobile">
+            — with AI that actually understands what you need.
           </p>
 
           <!-- Mascot: eyes follow the pointer (decorative) -->
@@ -151,19 +152,21 @@ export function renderHome() {
 
           <div class="ck-hero-actions">
             ${loggedIn ? `
-              <a href="/dashboard" class="ck-btn-hero">Open my workspace →</a>
+              <a href="/dashboard" class="ck-btn-hero">Enter My Workspace →</a>
             ` : `
-              <a href="/signup" class="ck-btn-hero">Start your civic journey</a>
+              <a href="/signup" class="ck-btn-hero">Start Your Civic Journey</a>
               <a href="/login" class="ck-btn-hero-ghost">I have an account →</a>
             `}
           </div>
 
           <!-- Live figures from this installation's public metadata -->
-          <dl class="ck-hero-facts" id="ck-hero-facts" aria-label="This installation">
-            <div><dt>Modules</dt><dd id="ck-fact-modules">—</dd></div>
-            <div><dt>Rules linking them</dt><dd id="ck-fact-rules">—</dd></div>
-            <div><dt>Wards</dt><dd id="ck-fact-wards">—</dd></div>
-          </dl>
+          <div class="ck-hero-trust" aria-label="This installation">
+            <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-modules">—</span><span class="ck-trust-label">Civic Modules</span></div>
+            <div class="ck-trust-sep"></div>
+            <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-rules">—</span><span class="ck-trust-label">Rules Linking Them</span></div>
+            <div class="ck-trust-sep"></div>
+            <div class="ck-trust-item"><span class="ck-trust-num" id="ck-fact-wards">—</span><span class="ck-trust-label">Wards</span></div>
+          </div>
         </div>
       </section>
 
