@@ -44,14 +44,43 @@ function isPublicStatus(status) {
 }
 
 /**
- * Anonymous visitors may read only approved records. Signed-in callers are
- * subject to the per-route rules that already exist.
- * Throws 401 for an anonymous caller on a record that is not public.
+ * How much of a record this caller may see:
+ *   'staff'  — a staff role: everything;
+ *   'owner'  — the citizen who filed it: everything about their own record;
+ *   'public' — anyone else, signed in or not, when the record is approved;
+ *   'none'   — anyone else when it is not approved.
+ * Being signed in gives a citizen no access to another citizen's record.
+ */
+function viewerLevel(entity, user) {
+  if (user && user.user_id) {
+    if (STAFF_ROLES.includes(user.role)) return 'staff';
+    const ownerId = entity ? entity.owner_user_id : null;
+    if (ownerId !== null && ownerId !== undefined && Number(ownerId) === Number(user.user_id)) return 'owner';
+  }
+  return entity && isPublicStatus(entity.status) ? 'public' : 'none';
+}
+
+/**
+ * Throws unless the caller may read the record; returns the viewer level.
+ * A record the caller may not read answers like one that does not exist (404),
+ * except that an anonymous caller is told to sign in (401).
  */
 function assertCanReadEntityData(entity, user) {
-  if (user && user.user_id) return true;
-  if (entity && isPublicStatus(entity.status)) return true;
-  throw httpError('Sign in to view this record.', 401);
+  const level = viewerLevel(entity, user);
+  if (level !== 'none') return level;
+  if (!user || !user.user_id) throw httpError('Sign in to view this record.', 401);
+  throw httpError(`Entity with id ${entity ? entity.entity_id : ''} was not found.`, 404);
+}
+
+/**
+ * The parts of a record that are about the people involved — its audit trail,
+ * lineage and workflow — are for the owner and staff only, whatever its status.
+ */
+function assertOwnerOrStaff(entity, user) {
+  const level = viewerLevel(entity, user);
+  if (level === 'staff' || level === 'owner') return level;
+  if (!user || !user.user_id) throw httpError('Sign in to view this record.', 401);
+  throw httpError(`Entity with id ${entity ? entity.entity_id : ''} was not found.`, 404);
 }
 
 /**
@@ -65,6 +94,8 @@ function ownerSelectFor(user) {
 module.exports = {
   assertCanModifyEntity,
   assertCanReadEntityData,
+  assertOwnerOrStaff,
+  viewerLevel,
   ownerSelectFor,
   isPublicStatus,
   STAFF_ROLES,

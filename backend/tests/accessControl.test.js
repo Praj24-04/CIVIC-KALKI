@@ -304,6 +304,66 @@ describe('S1 and S2 — access control', () => {
     });
   });
 
+  // ── Bug 1: a signed-in citizen has no more access to another citizen's record than a visitor ──
+  describe("another citizen's record", () => {
+    let submitted, approved;
+
+    beforeAll(async () => {
+      const mk = (name, status) => prisma.entity.create({
+        data: { entity_type_id: movementType.entity_type_id, owner_user_id: owner.user.user_id, name, status, area: 'Sector 5' },
+      });
+      submitted = await mk('Access Control Private Complaint', 'submitted');
+      approved = await mk('Access Control Public Complaint', 'approved');
+      await prisma.parameterValue.create({ data: { entity_id: submitted.entity_id, parameter_id: parameterId, value: 'private detail' } });
+      for (const e of [submitted, approved]) {
+        await prisma.auditLog.create({ data: { entity_id: e.entity_id, actor_user_id: admin.user.user_id, action: 'status_transition', user: admin.user.name, old_status: 'draft', new_status: e.status } });
+      }
+    });
+
+    afterAll(async () => {
+      await prisma.parameterValue.deleteMany({ where: { entity_id: submitted.entity_id } });
+    });
+
+    const paths = (id) => [`/entities/${id}`, `/entities/${id}/values`, `/entities/${id}/audit`, `/entities/${id}/lineage`, `/entities/${id}/workflow`, `/files/entity/${id}`];
+
+    test('not approved: every read answers 404 and returns nothing about it', async () => {
+      for (const path of paths(submitted.entity_id)) {
+        const res = await request(app).get(path).set(otherCitizen.headers);
+        expect([path, res.status]).toEqual([path, 404]);
+        const body = JSON.stringify(res.body);
+        expect(body).not.toContain('Access Control Private Complaint');
+        expect(body).not.toContain('private detail');
+        expect(body).not.toMatch(/@/);
+      }
+    });
+
+    test('not approved: the owner and staff can still read everything', async () => {
+      for (const who of [owner, admin]) {
+        for (const path of paths(submitted.entity_id)) {
+          const res = await request(app).get(path).set(who.headers);
+          expect([path, res.status]).toEqual([path, 200]);
+        }
+      }
+    });
+
+    test('approved: the record is public, but its audit trail and lineage are not', async () => {
+      const id = approved.entity_id;
+      expect((await request(app).get(`/entities/${id}`).set(otherCitizen.headers)).status).toBe(200);
+      for (const path of [`/entities/${id}/audit`, `/entities/${id}/lineage`]) {
+        const res = await request(app).get(path).set(otherCitizen.headers);
+        expect([path, res.status]).toEqual([path, 404]);
+        expect(JSON.stringify(res.body)).not.toMatch(/@/);
+      }
+      expect((await request(app).get(`/entities/${id}/audit`).set(owner.headers)).status).toBe(200);
+    });
+
+    test("a citizen's own list never includes another citizen's records", async () => {
+      const res = await request(app).get(`/entities?limit=100&owner_user_id=${owner.user.user_id}`).set(otherCitizen.headers);
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((e) => e.owner_user_id === otherCitizen.user.user_id)).toBe(true);
+    });
+  });
+
   describe('client-supplied status on create', () => {
     const create = (headers, status) =>
       request(app).post('/entities').set(headers)

@@ -21,7 +21,7 @@ const { executeWorkflowTransition, getWorkflowMasterRules, validateWorkflowTrans
 const { applyLocationVisibility, applyLocationVisibilityMany } = require('../services/locationVisibility');
 const prisma = require('../db');
 const { getNotificationFeed } = require('../services/notificationFeed');
-const { assertCanModifyEntity, ownerSelectFor, isPublicStatus, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
+const { assertCanModifyEntity, assertOwnerOrStaff, viewerLevel, ownerSelectFor, isPublicStatus, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
 
 // Largest page a client may ask for.
 const MAX_PAGE_SIZE = 100;
@@ -606,7 +606,9 @@ router.get('/:id', async (req, res, next) => {
     }
     // Anonymous visitors can read approved records only. Anything else answers
     // exactly like a record that does not exist.
-    if (!req.user && !isPublicStatus(entity.status)) {
+    // The same goes for a signed-in citizen looking at someone else's record:
+    // only staff and the owner can read a record that is not approved.
+    if (viewerLevel(entity, req.user) === 'none') {
       return next(createError(`Entity with id ${entityId} was not found.`, 404));
     }
 
@@ -851,6 +853,9 @@ router.get('/:id/workflow', verifyToken, async (req, res, next) => {
     if (!entity) {
       return next(createError(`Entity with id ${entityId} was not found.`, 404));
     }
+    if (viewerLevel(entity, req.user) === 'none') {
+      return next(createError(`Entity with id ${entityId} was not found.`, 404));
+    }
 
     const rules = await getWorkflowMasterRules(entity.entity_type_id);
     let actorAssignedArea = req.user.assignedArea || req.user.assigned_area || null;
@@ -1030,6 +1035,7 @@ router.get('/:id/audit', verifyToken, async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Civic Buzz moderation history is not available through generic entity endpoints.', 404));
     }
+    assertOwnerOrStaff(entity, req.user);
 
     const [auditLogs, approvalHistory] = await Promise.all([
       prisma.auditLog.findMany({
@@ -1070,6 +1076,7 @@ router.get('/:id/lineage', verifyToken, async (req, res, next) => {
     if (!entity) {
       return next(createError(`Entity with id ${entityId} was not found.`, 404));
     }
+    assertOwnerOrStaff(entity, req.user);
 
     // 1. Configured Rules for this entity's entityType
     const activeRules = await prisma.entityRelationshipRule.findMany({
