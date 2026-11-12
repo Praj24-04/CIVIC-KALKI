@@ -486,7 +486,8 @@ async function renderCitizenDash(container, user, metaData) {
     const res = await apiEntities.nearby(loc.lat, loc.lng, 10).catch(() => ({ data: [] }));
     const items = (res.data || []).slice(0, 5);
     nearbyEl.innerHTML = items.length
-      ? items.map((i) => workRowHtml({ id: i.entity_id, title: i.name, meta: [moduleLabel(i), i.area], side: statusPillHtml(i.status), action: 'View' })).join('')
+      ? // The nearby endpoint returns name and distance only (these are all approved, public records).
+          items.map((i) => workRowHtml({ id: i.entity_id, title: i.name, meta: [Number.isFinite(i.distance_km) ? `${i.distance_km} km away` : ''], action: 'View' })).join('')
       : '<div class="ws-empty">No approved public records within 10 km yet.</div>';
   };
   if (_nearbyListener) document.removeEventListener('ck:location', _nearbyListener);
