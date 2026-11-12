@@ -511,6 +511,9 @@ a.ws-item, a.ws-item:hover, a.ws-action, a.ws-action:hover, a.ws-fact, a.ws-fact
 .ck-hero-classic .ck-trust-num { color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .ck-hero-classic .ck-float-badge, .ck-hero-classic .ck-hero-pill-dot { animation: none; } }
 
+/* Floating pills: all in the palette's teal */
+.ck-hero-classic .ck-float-badge { background: var(--primary-light); color: var(--primary); border-color: var(--primary-border); box-shadow: 0 8px 24px rgba(var(--primary-rgb), .10); }
+
 /* Mascot dome: a big orange half-circle rising from the hero's bottom edge */
 .ck-hero-classic { padding-bottom: 0 !important; }
 .ck-hero-classic .ck-hero-content { flex: 1; width: 100%; }
