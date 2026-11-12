@@ -96,7 +96,8 @@ app.use('/buzz', buzzRoutes);            // Civic Buzz
 
 // ── Serve uploaded files statically ──
 const path = require('path');
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Uploaded files are not a public folder: each request is checked (see routes/file.js).
+app.get('/uploads/:name', fileRoutes.serveUpload);
 
 // ── Global error handler (must be last) ──
 app.use(errorHandler);

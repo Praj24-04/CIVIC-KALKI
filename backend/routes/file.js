@@ -249,4 +249,35 @@ router.delete('/:fileId', verifyToken, async (req, res, next) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /uploads/:name  (mounted in index.js in place of a public static folder)
+// A file in the uploads folder is served by name only when the caller may see it:
+//   - Civic Buzz card images (buzz-card-*) are public artwork for public posts;
+//   - a record's attachment goes to the record's owner and to staff only;
+//   - anything else (for example a file never attached to a record) is not served.
+// ─────────────────────────────────────────────────────────────────────────────
+async function serveUpload(req, res, next) {
+  try {
+    const name = path.basename(String(req.params.name || ''));
+    const filePath = path.join(UPLOAD_DIR, name);
+    if (!name || !fs.existsSync(filePath)) return next(createError('File not found.', 404));
+
+    if (!/^buzz-card-[\w.-]+$/.test(name)) {
+      const record = await prisma.fileRepository.findFirst({
+        where: { path: name },
+        include: { entity: true },
+      });
+      if (!record) {
+        if (!req.user) return next(createError('Sign in to view this file.', 401));
+        return next(createError('File not found.', 404));
+      }
+      assertOwnerOrStaff(record.entity, req.user);
+    }
+    return res.sendFile(filePath);
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = router;
+module.exports.serveUpload = serveUpload;

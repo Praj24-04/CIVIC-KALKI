@@ -446,6 +446,38 @@ describe('S1 and S2 — access control', () => {
       }
     });
 
+    test('the uploads folder is not public: an attachment cannot be fetched by file name', async () => {
+      const url = `/uploads/${path.basename(diskPath)}`;
+      const anon = await request(app).get(url);
+      expect(anon.status).toBe(401);
+      const other = await request(app).get(url).set(otherCitizen.headers);
+      expect(other.status).toBe(404);
+      for (const res of [anon, other]) expect(res.text || '').not.toContain('not really a png');
+
+      for (const who of [owner, admin]) {
+        const res = await request(app).get(url).set(who.headers);
+        expect(res.status).toBe(200);
+      }
+
+      // A file that belongs to no record is served to nobody.
+      const stray = path.join(path.dirname(diskPath), `ac-stray-${Date.now()}.txt`);
+      fs.writeFileSync(stray, 'stray');
+      try {
+        expect((await request(app).get(`/uploads/${path.basename(stray)}`)).status).toBe(401);
+        expect((await request(app).get(`/uploads/${path.basename(stray)}`).set(admin.headers)).status).toBe(404);
+      } finally { fs.unlinkSync(stray); }
+
+      // Civic Buzz card images are public artwork.
+      const card = path.join(path.dirname(diskPath), `buzz-card-${Date.now()}-actest.png`);
+      fs.writeFileSync(card, 'card');
+      try {
+        expect((await request(app).get(`/uploads/${path.basename(card)}`)).status).toBe(200);
+      } finally { fs.unlinkSync(card); }
+
+      // No path tricks.
+      expect((await request(app).get('/uploads/..%2F.env')).status).toBe(404);
+    });
+
     test('the owner and staff still see every field and the attachment', async () => {
       for (const who of [owner, admin]) {
         const values = await request(app).get(`/entities/${complaint.entity_id}/values`).set(who.headers);
