@@ -198,7 +198,8 @@ const MODULE_DEFINITIONS = [
   // ── 1. Movement (Civic Initiative) ──────────────────────────────────────
   {
     entityTypeName: 'Movement',
-    entityTypeDescription: 'Citizen movement submission and tracking',
+    // The description is how the civic assistant recognises and describes this service to a citizen.
+    entityTypeDescription: 'Start a community initiative: a cleanup drive, tree plantation, awareness campaign, safety or education project in your neighbourhood that others can join',
     formName: 'Civic Initiative Registration Form',
     sections: [
       {
@@ -282,7 +283,7 @@ const MODULE_DEFINITIONS = [
   // ── 2. Grievance (Civic Problem) ────────────────────────────────────────
   {
     entityTypeName: 'Grievance',
-    entityTypeDescription: 'Automatically created or submitted grievance issue',
+    entityTypeDescription: 'Report a problem that needs fixing: a pothole or damaged road, garbage not collected, a broken streetlight, a water leak or no water supply, blocked drainage or sewage, noise, stray animals, an unsafe or dirty public place',
     formName: 'Grievance Submission Form',
     sections: [
       {
@@ -336,7 +337,7 @@ const MODULE_DEFINITIONS = [
   // ── 3. Citizen Passport ─────────────────────────────────────────────────
   {
     entityTypeName: 'Citizen Passport',
-    entityTypeDescription: "Tracks a citizen's profile, skills, and contribution history across movements",
+    entityTypeDescription: 'Set up your citizen passport: your profile, skills and the civic contributions you have made',
     formName: 'Citizen Passport Form',
     sections: [
       {
@@ -399,7 +400,7 @@ const MODULE_DEFINITIONS = [
   // ── 4. Digital Civic Constitution (Civic Charter) ────────────────────────
   {
     entityTypeName: 'Digital Civic Constitution',
-    entityTypeDescription: 'Establishes governance rules for a specific Movement',
+    entityTypeDescription: 'Propose a civic charter: the rules, principles and guidelines a community initiative agrees to follow',
     formName: 'Digital Civic Constitution Form',
     sections: [
       {
@@ -454,7 +455,7 @@ const MODULE_DEFINITIONS = [
   // ── 5. Employment Exchange ──────────────────────────────────────────────
   {
     entityTypeName: 'Employment Exchange',
-    entityTypeDescription: 'Job postings tied to movement-generated needs',
+    entityTypeDescription: 'Post or find civic work: a job, paid task or employment opening linked to a community initiative',
     formName: 'Employment Exchange Form',
     sections: [
       {
@@ -517,7 +518,7 @@ const MODULE_DEFINITIONS = [
   // ── 6. Volunteer Management ─────────────────────────────────────────────
   {
     entityTypeName: 'Volunteer Management',
-    entityTypeDescription: 'Volunteer registry and task assignment for a movement',
+    entityTypeDescription: 'Volunteer your time: register as a volunteer or organise volunteers and tasks for a community initiative',
     formName: 'Volunteer Management Form',
     sections: [
       {
@@ -567,7 +568,7 @@ const MODULE_DEFINITIONS = [
   // ── 7. Legacy & Continuity ──────────────────────────────────────────────
   {
     entityTypeName: 'Legacy & Continuity',
-    entityTypeDescription: 'Tracks what a movement becomes after it concludes',
+    entityTypeDescription: 'Record the legacy of a finished initiative: what it achieved, what continues and who carries it on',
     formName: 'Legacy & Continuity Form',
     sections: [
       {

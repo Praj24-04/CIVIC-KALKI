@@ -1,873 +1,436 @@
 /**
- * CIVIC-KALKI — Agent Layer Deterministic Tests
+ * CIVIC-KALKI — Civic assistant
  *
- * ALL Gemini calls are mocked via jest.mock — no live API dependency.
- * Prisma is mocked — no live DB dependency.
- *
- * Test strategy:
- *   - Unit tests call the service functions directly (fast, no HTTP overhead)
- *   - Endpoint tests use supertest only for validation rules (400/401 checks)
- *   - Session injection tests manipulate the exported _sessions Map directly
- *
- * Run: npm test (from backend/)
+ * These run the real conversation engine against the real database. Only the
+ * AI SDK is mocked: by default no key is set, so the assistant runs on rules;
+ * the AI tests set a key and script the model's answers.
  */
 
-// ── Mock @google/generative-ai BEFORE any require ─────────────────────────────
+const mockGenerate = jest.fn();
 jest.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
-    getGenerativeModel: jest.fn().mockReturnValue({
-      generateContent: jest.fn().mockResolvedValue({
-        response: { text: () => '{}' },
-      }),
-    }),
+    getGenerativeModel: jest.fn(() => ({ generateContent: mockGenerate })),
   })),
 }));
 
-// ── Mock agentIntentRouter ─────────────────────────────────────────────────────
-const mockRouteIntent = jest.fn();
-jest.mock('../services/agentIntentRouter', () => ({
-  routeIntent: mockRouteIntent,
-}));
-
-// ── Mock prisma ───────────────────────────────────────────────────────────────
-jest.mock('../db', () => ({
-  user: {
-    findUnique: jest.fn().mockImplementation(async ({ where }) => ({
-      user_id: where.user_id || 88,
-      name: 'Test Citizen',
-      role: 'citizen',
-      assignedArea: null,
-    })),
-  },
-  entityType: { findFirst: jest.fn(), findMany: jest.fn() },
-  formMaster: { findFirst: jest.fn() },
-  entity: { findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
-  parameterValue: { create: jest.fn() },
-  auditLog: { create: jest.fn() },
-  fileRepository: { create: jest.fn() },
-  $transaction: jest.fn(async (ops) => {
-    if (Array.isArray(ops)) return Promise.all(ops);
-    return ops;
-  }),
-}));
-
-const prisma = require('../db');
-process.env.GEMINI_API_KEY = 'test-key-mocked';
-
-// ── Import subjects under test ────────────────────────────────────────────────
-const {
-  continueFormFilling,
-  clearSession,
-  matchFileToParameter,
-  _sessions,
-  _extractParameters,
-  _isAffirmativeReply,
-  _synthesizeEntityName,
-} = require('../services/agentFormFiller');
+// The workflow engine is real; one test makes its transition fail on purpose.
+const mockFail = { next: false };
+jest.mock('../services/workflowEngine', () => {
+  const real = jest.requireActual('../services/workflowEngine');
+  return {
+    ...real,
+    executeWorkflowTransition: jest.fn(async (args) => {
+      if (mockFail.next) { mockFail.next = false; throw new Error('forced failure'); }
+      return real.executeWorkflowTransition(args);
+    }),
+  };
+});
 
 const request = require('supertest');
 const app = require('../index');
-const { getAuthHeaders } = require('./helpers/authHelper');
+const prisma = require('../db');
+const { createTestUser, cleanupAll } = require('./helpers/authHelper');
+const { continueFormFilling, clearSession, matchFileToParameter, _sessions, _validateValue, _loadServiceCatalog } = require('../services/agentFormFiller');
 
-const CITIZEN_USER_ID = 88;
+const reply = (obj) => ({ response: { text: () => JSON.stringify(obj) } });
+const never = () => new Promise(() => {});
 
-function makeAuthHeaders(userId = CITIZEN_USER_ID, role = 'citizen') {
-  return getAuthHeaders({ user_id: userId, name: 'Test Citizen', role, assignedArea: null });
-}
+describe('Civic assistant', () => {
+  const saved = {};
+  const WARD = `Testward${Date.now()}`;
+  const OTHER_WARD = `Otherward${Date.now()}`;
+  let citizen, citizenUser, director, coordinator, grievance, wardRow, otherWardRow;
+  let seq = 0;
+  const sid = () => `assistant-test-${Date.now()}-${seq += 1}`;
+  const say = (id, text, who = citizenUser) => continueFormFilling(id, text, who);
+  const recordsNamed = (fragment) => prisma.entity.findMany({ where: { owner_user_id: citizen.user.user_id, name: { contains: fragment } } });
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
-
-const GRIEVANCE_FORM_SCHEMA = {
-  form_id: 3,
-  form_name: 'Grievance Submission Form',
-  entityType: { entity_type_id: 2, name: 'Grievance' },
-  sections: [{
-    section_id: 5,
-    section_name: 'Details',
-    display_order: 0,
-    subsections: [{
-      subsection_id: 8,
-      subsection_name: 'Complaint',
-      parameters: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', control_type: 'textarea', mandatory: true, options: null, validation_rule: null, display_order: 0 },
-        { parameter_id: 13, field_key: 'category',          label: 'Grievance Category', field_type: 'select',   control_type: 'dropdown', mandatory: true, options: { choices: ['Sanitation','Infrastructure','Safety'] }, validation_rule: null, display_order: 1 },
-        { parameter_id: 14, field_key: 'severity',          label: 'Severity',           field_type: 'select',   control_type: 'dropdown', mandatory: true, options: { choices: ['Minor','Moderate','Severe','Critical'] }, validation_rule: null, display_order: 2 },
-        { parameter_id: 17, field_key: 'reporter_name',     label: 'Reporter Name',      field_type: 'text',     control_type: 'input',    mandatory: true, options: null, validation_rule: null, display_order: 3 },
-        { parameter_id: 18, field_key: 'reporter_phone',    label: 'Reporter Phone',     field_type: 'phone',    control_type: 'input',    mandatory: false, options: null, validation_rule: null, display_order: 4 },
-        { parameter_id: 20, field_key: 'photo_evidence',    label: 'Photo Evidence',     field_type: 'file',     control_type: 'file',     mandatory: false, options: null, validation_rule: null, display_order: 5 },
-      ],
-    }],
-  }],
-};
-
-const TEST_USER = { user_id: CITIZEN_USER_ID, role: 'citizen' };
-
-// Helper: ensure session is clean before each test that creates new ones
-function uniqueSessionId() {
-  return 'test-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
-}
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  // Default prisma fallbacks
-  prisma.entity.findMany.mockResolvedValue([]);
-  prisma.entityType.findFirst.mockResolvedValue({ entity_type_id: 2, name: 'Grievance' });
-  prisma.formMaster.findFirst.mockResolvedValue(GRIEVANCE_FORM_SCHEMA);
-});
-
-afterEach(() => {
-  // Clean up any sessions this test created
-  for (const [key] of _sessions) {
-    if (key.startsWith('test-')) clearSession(key);
-  }
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// BLOCK 1 — Helper unit tests (no Gemini, no HTTP)
-// ══════════════════════════════════════════════════════════════════════════════
-
-describe('_extractParameters()', () => {
-  test('(b1) skips file-type params', () => {
-    const schema = {
-      sections: [{
-        section_name: 'S',
-        subsections: [{
-          subsection_name: 'Sub',
-          parameters: [
-            { parameter_id: 1, field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', mandatory: true },
-            { parameter_id: 2, field_key: 'photo_evidence',    label: 'Photo Evidence',    field_type: 'file',     mandatory: false },
-            { parameter_id: 3, field_key: 'category',          label: 'Category',          field_type: 'select',   mandatory: true },
-          ],
-        }],
-      }],
-    };
-    const { required, allText } = _extractParameters(schema);
-    expect(allText).toHaveLength(2);
-    expect(allText.find(p => p.field_key === 'photo_evidence')).toBeUndefined();
-    expect(required).toHaveLength(2);
-    expect(required.every(p => p.mandatory)).toBe(true);
+  beforeAll(async () => {
+    for (const k of ['GEMINI_API_KEY', 'AI_TIMEOUT_MS']) saved[k] = process.env[k];
+    citizen = await createTestUser({ role: 'citizen' });
+    director = await createTestUser({ role: 'director' });
+    coordinator = await createTestUser({ role: 'coordinator_area', assignedArea: WARD });
+    citizenUser = { user_id: citizen.user.user_id, role: 'citizen', name: citizen.user.name };
+    grievance = await prisma.entityType.findFirst({ where: { name: 'Grievance' } });
+    wardRow = await prisma.jurisdictionMaster.create({ data: { name: WARD, type: 'ward', status: 'active' } });
+    otherWardRow = await prisma.jurisdictionMaster.create({ data: { name: OTHER_WARD, type: 'ward', status: 'active' } });
   });
 
-  test('(b2) identifies all mandatory Grievance fields', () => {
-    const { required } = _extractParameters(GRIEVANCE_FORM_SCHEMA);
-    expect(required.map(p => p.field_key)).toEqual(
-      expect.arrayContaining(['complaint_details', 'category', 'severity', 'reporter_name'])
-    );
-    expect(required.find(p => p.field_key === 'photo_evidence')).toBeUndefined();
+  beforeEach(() => {
+    mockGenerate.mockReset();
+    delete process.env.GEMINI_API_KEY; // rules only, unless a test sets a key
+    process.env.AI_TIMEOUT_MS = '250';
+    mockFail.next = false;
   });
-});
 
-describe('_isAffirmativeReply()', () => {
-  test('(c1) "yes" variants are affirmative', () => {
-    ['yes', 'Yes please', 'OK go ahead', 'confirm', 'Submit it', 'looks good', 'sure'].forEach(msg => {
-      expect(_isAffirmativeReply(msg)).toBe(true);
+  afterAll(async () => {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    await prisma.fileRepository.deleteMany({ where: { entity: { owner_user_id: citizen.user.user_id } } });
+    await prisma.parameterValue.deleteMany({ where: { entity: { owner_user_id: citizen.user.user_id } } });
+    await prisma.entity.updateMany({ where: { jurisdiction_id: { in: [wardRow.jurisdiction_id, otherWardRow.jurisdiction_id] } }, data: { jurisdiction_id: null } });
+    await cleanupAll();
+    await prisma.jurisdictionMaster.deleteMany({ where: { jurisdiction_id: { in: [wardRow.jurisdiction_id, otherWardRow.jurisdiction_id] } } });
+    await prisma.$disconnect();
+  });
+
+  // ── The acceptance test ────────────────────────────────────────────────────
+  describe('pothole: from one sentence to a traceable complaint', () => {
+    test('asks only what is missing, confirms, then files the real record', async () => {
+      const id = sid();
+      const asked = [];
+      let r = await say(id, "There's a pothole outside my building");
+      expect(r.type).toBe('question');
+      asked.push(r.text);
+
+      // Nothing exists yet.
+      expect(await recordsNamed('Pothole outside my building')).toHaveLength(0);
+
+      r = await say(id, 'infrastructure'); expect(r.type).toBe('question'); asked.push(r.text);
+      r = await say(id, 'severe'); expect(r.type).toBe('question'); asked.push(r.text);
+      r = await say(id, WARD);
+
+      // One question per turn, none repeated, none about things already known.
+      expect(new Set(asked).size).toBe(asked.length);
+      for (const q of asked) expect((q.match(/\?/g) || []).length).toBe(1);
+      expect(asked.join(' ')).not.toMatch(/your name|what happened|describe/i);
+
+      // Read back for confirmation, still nothing created.
+      expect(r.type).toBe('confirm');
+      expect(r.text).toMatch(/Pothole outside my building/);
+      expect(r.text).toContain(WARD);
+      expect(r.text).toMatch(/Infrastructure/);
+      expect(r.text).toMatch(/Severe/);
+      expect(r.text).toMatch(/Shall I send it\?/);
+      expect(await recordsNamed('Pothole outside my building')).toHaveLength(0);
+
+      r = await say(id, 'yes');
+      expect(r.type).toBe('submitted');
+      expect(r.reference).toMatch(/^PR-\d{5}$/);
+      expect(r.text).toContain(r.reference);
+      expect(r.text).toContain(`${WARD} area coordinator`);
+      expect(r.text).toMatch(/notification/);
+
+      // The real record, in the real workflow.
+      const e = await prisma.entity.findUnique({
+        where: { entity_id: r.entity_id },
+        include: { parameterValues: { include: { parameterMaster: true } }, approvalHistory: true, auditLogs: true },
+      });
+      expect(e.entity_type_id).toBe(grievance.entity_type_id);
+      expect(e.owner_user_id).toBe(citizen.user.user_id);
+      expect(e.status).toBe('submitted');
+      expect(e.area).toBe(WARD);
+      expect(e.jurisdiction_id).toBe(wardRow.jurisdiction_id);
+      const values = Object.fromEntries(e.parameterValues.map((v) => [v.parameterMaster.field_key, v.value]));
+      expect(values).toMatchObject({ category: 'Infrastructure', severity: 'Severe', reporter_name: citizen.user.name });
+      expect(values.complaint_details).toMatch(/pothole outside my building/i);
+      expect(e.approvalHistory.map((h) => `${h.from_status}>${h.to_status}`)).toEqual(['draft>submitted']);
+      expect(e.auditLogs.some((a) => a.action === 'status_transition' && a.actor_user_id === citizen.user.user_id)).toBe(true);
+
+      // It reaches the ward's coordinator like any other record.
+      const feed = await request(app).get('/entities/notifications?limit=100').set(coordinator.headers);
+      expect(feed.body.data.some((n) => n.entity_id === e.entity_id && n.kind === 'queue')).toBe(true);
+    });
+
+    test('speaks plainly: no module, field or system words in anything it says', async () => {
+      const id = sid();
+      const said = [];
+      for (const t of ["There's a pothole outside my building", 'infrastructure', 'severe', WARD, 'yes']) said.push((await say(id, t)).text);
+      const all = said.join('\n');
+      expect(all).not.toMatch(/grievance|entity|module|parameter|field|workflow|metadata|complaint_details|reporter_name|form\b/i);
+    });
+
+    test('the same journey over HTTP', async () => {
+      const id = sid();
+      const post = (message) => request(app).post('/agent/chat').set(citizen.headers).send({ sessionId: id, message });
+      let res;
+      for (const t of ['The streetlight on my lane is broken and it is dark at night', 'safety', 'moderate', WARD]) res = await post(t);
+      expect(res.body.data.type).toBe('confirm');
+      res = await post('yes');
+      expect(res.status).toBe(200);
+      expect(res.body.data.type).toBe('submitted');
+      const e = await prisma.entity.findUnique({ where: { entity_id: res.body.data.entity_id } });
+      expect(e.status).toBe('submitted');
     });
   });
 
-  test('(c2) negative/ambiguous are NOT affirmative', () => {
-    ['no', 'maybe later', 'not now', 'cancel', '', '   '].forEach(msg => {
-      expect(_isAffirmativeReply(msg)).toBe(false);
-    });
-  });
-});
+  // ── Corrections ────────────────────────────────────────────────────────────
+  describe('corrections', () => {
+    test('changes an earlier answer mid-way and at the summary, without asking again', async () => {
+      const id = sid();
+      await say(id, 'Garbage has not been collected on our street for a week');
+      await say(id, 'sanitation');
+      let r = await say(id, 'minor');
+      expect(r.text).toMatch(/area/i);
 
-describe('_synthesizeEntityName()', () => {
-  test('Grievance with category + location', () => {
-    const params = [
-      { parameter_id: 1, field_key: 'complaint_details' },
-      { parameter_id: 2, field_key: 'category' },
-      { parameter_id: 3, field_key: 'location' },
-    ];
-    const draft = { 1: 'Garbage problem', 2: 'Sanitation', 3: 'FC Road' };
-    const name = _synthesizeEntityName('Grievance', draft, params);
-    expect(name).toContain('Sanitation');
-    expect(name).toContain('FC Road');
-  });
+      // Corrects the previous answer instead of answering the question.
+      r = await say(id, 'actually make it critical');
+      expect(r.text).toMatch(/severity is now Critical/i);
+      expect(r.text).toMatch(/area/i); // carries on with what is still missing
 
-  test('Movement with initiative_type', () => {
-    const params = [
-      { parameter_id: 1, field_key: 'initiative_description' },
-      { parameter_id: 2, field_key: 'initiative_type' },
-    ];
-    const draft = { 1: 'Community cleanup', 2: 'Cleanliness' };
-    const name = _synthesizeEntityName('Movement', draft, params);
-    expect(name).toContain('Cleanliness');
-  });
-});
+      r = await say(id, WARD);
+      expect(r.type).toBe('confirm');
+      expect(r.text).toMatch(/Critical/);
 
-// ══════════════════════════════════════════════════════════════════════════════
-// BLOCK 2 — Intent routing via continueFormFilling (service unit test)
-// ══════════════════════════════════════════════════════════════════════════════
+      // Corrects at the summary: the summary is shown again, nothing is sent.
+      r = await say(id, `sorry, it is in ${OTHER_WARD}`);
+      expect(r.type).toBe('confirm');
+      expect(r.text).toMatch(new RegExp(`area is now ${OTHER_WARD}`));
+      expect(r.text).toContain(OTHER_WARD);
+      expect(await recordsNamed('Garbage has not been collected')).toHaveLength(0);
 
-describe('continueFormFilling() — intent routing (unit)', () => {
-  test('(a1) Grievance "report" intent → starts collecting phase', async () => {
-    mockRouteIntent.mockResolvedValue({ action_type: 'report', matched_capability: 'Grievance', confidence: 'high' });
-
-    // Mock Gemini extractFormValues to return a question (complaint_details missing)
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    GoogleGenerativeAI.mockImplementation(() => ({
-      getGenerativeModel: () => ({
-        generateContent: jest.fn().mockResolvedValue({
-          response: { text: () => JSON.stringify({ extracted_values: {}, next_question: 'What is the complaint?', ready_for_confirmation: false }) },
-        }),
-      }),
-    }));
-
-    const sid = uniqueSessionId();
-    const result = await continueFormFilling(sid, 'garbage not collected near FC Road', TEST_USER);
-
-    expect(result.type).toBe('question');
-    expect(result.text).toBeTruthy();
-    expect(mockRouteIntent).toHaveBeenCalledWith('garbage not collected near FC Road', []);
-
-    // Session should now be in 'collecting' phase
-    const session = _sessions.get(sid);
-    expect(session.phase).toBe('collecting');
-    expect(session.capability).toBe('Grievance');
-  });
-
-  test('(a2) Movement "initiate" intent → starts collecting phase', async () => {
-    mockRouteIntent.mockResolvedValue({ action_type: 'initiate', matched_capability: 'Movement', confidence: 'high' });
-    prisma.entityType.findFirst.mockResolvedValue({ entity_type_id: 1, name: 'Movement' });
-    prisma.formMaster.findFirst.mockResolvedValue({
-      form_id: 2, form_name: 'Civic Initiative Registration Form',
-      entityType: { entity_type_id: 1, name: 'Movement' },
-      sections: [{ section_id: 1, section_name: 'About the Initiative', display_order: 0, subsections: [{
-        subsection_id: 1, subsection_name: 'Main', parameters: [
-          { parameter_id: 1, field_key: 'initiative_description', label: 'Initiative Description', field_type: 'textarea', mandatory: true, options: null, validation_rule: null, display_order: 0 },
-          { parameter_id: 2, field_key: 'initiative_type', label: 'Initiative Category', field_type: 'select', mandatory: true, options: { choices: ['Cleanliness','Environmental'] }, validation_rule: null, display_order: 1 },
-        ],
-      }] }],
+      r = await say(id, 'yes');
+      const e = await prisma.entity.findUnique({ where: { entity_id: r.entity_id }, include: { parameterValues: { include: { parameterMaster: true } } } });
+      expect(e.area).toBe(OTHER_WARD);
+      expect(e.parameterValues.find((v) => v.parameterMaster.field_key === 'severity').value).toBe('Critical');
     });
 
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    GoogleGenerativeAI.mockImplementation(() => ({
-      getGenerativeModel: () => ({
-        generateContent: jest.fn().mockResolvedValue({
-          response: { text: () => JSON.stringify({ extracted_values: {}, next_question: 'What type of initiative?', ready_for_confirmation: false }) },
-        }),
-      }),
-    }));
-
-    const sid = uniqueSessionId();
-    const result = await continueFormFilling(sid, 'I want to start a community cleanup drive', TEST_USER);
-
-    expect(result.type).toBe('question');
-    expect(result.capability).toBe('Movement');
-    const session = _sessions.get(sid);
-    expect(session.capability).toBe('Movement');
-  });
-
-  test('(a3) "unclear" intent → returns UNCLEAR_RESPONSE', async () => {
-    mockRouteIntent.mockResolvedValue({ action_type: 'unclear', matched_capability: null, confidence: 'low' });
-    const sid = uniqueSessionId();
-    const result = await continueFormFilling(sid, 'hello how are you', TEST_USER);
-    expect(result.type).toBe('unclear');
-    expect(result.text).toContain('Report a civic problem');
-  });
-
-  test('(a4) "status_check" intent → returns status type with submissions list', async () => {
-    mockRouteIntent.mockResolvedValue({ action_type: 'status_check', matched_capability: null, confidence: 'high' });
-    prisma.entity.findMany.mockResolvedValue([
-      { entity_id: 42, name: 'Test Grievance', status: 'submitted', entityType: { name: 'Grievance' } },
-    ]);
-
-    const sid = uniqueSessionId();
-    const result = await continueFormFilling(sid, 'what is happening with my request?', TEST_USER);
-    expect(result.type).toBe('status');
-    expect(result.text).toContain('#42');
-  });
-
-  test('(a5) "guidance" intent → returns guidance message', async () => {
-    mockRouteIntent.mockResolvedValue({ action_type: 'guidance', matched_capability: null, confidence: 'high' });
-    const sid = uniqueSessionId();
-    const result = await continueFormFilling(sid, 'how does this work', TEST_USER);
-    expect(result.type).toBe('guidance');
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// BLOCK 3 — Form filling (collecting phase) — session injection
-// ══════════════════════════════════════════════════════════════════════════════
-
-describe('continueFormFilling() — collecting phase (unit)', () => {
-  function makeCollectingSession(sid, draftOverride = {}) {
-    _sessions.set(sid, {
-      phase: 'collecting',
-      capability: 'Grievance',
-      entityTypeId: 2,
-      formId: 3,
-      formSchema: {},
-      requiredParams: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', mandatory: true, options: null },
-        { parameter_id: 13, field_key: 'category', label: 'Grievance Category', mandatory: true, options: { choices: ['Sanitation','Infrastructure'] } },
-        { parameter_id: 17, field_key: 'reporter_name', label: 'Reporter Name', mandatory: true, options: null },
-      ],
-      allTextParams: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', mandatory: true },
-        { parameter_id: 13, field_key: 'category', label: 'Grievance Category', field_type: 'select', mandatory: true },
-        { parameter_id: 17, field_key: 'reporter_name', label: 'Reporter Name', field_type: 'text', mandatory: true },
-      ],
-      draft: draftOverride,
-      conversationHistory: [],
-      userId: CITIZEN_USER_ID,
-      userRole: 'citizen',
-      _timer: null,
+    test('"no" at the summary asks what to change; "cancel" drops it', async () => {
+      const id = sid();
+      for (const t of ['Water is leaking from a pipe on the main road', 'water supply', 'severe', WARD]) await say(id, t);
+      let r = await say(id, 'no');
+      expect(r.type).toBe('question');
+      expect(r.text).toMatch(/what should I change/i);
+      r = await say(id, 'cancel');
+      expect(r.type).toBe('cancelled');
+      expect(await recordsNamed('Water is leaking')).toHaveLength(0);
     });
-  }
-
-  test('(b3) missing required fields → returns next_question, no submission', async () => {
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    GoogleGenerativeAI.mockImplementation(() => ({
-      getGenerativeModel: () => ({
-        generateContent: jest.fn().mockResolvedValue({
-          response: { text: () => JSON.stringify({
-            extracted_values: { '12': 'Garbage not collected for 3 days' },
-            next_question: 'What is the Grievance Category?',
-            ready_for_confirmation: false,
-          })},
-        }),
-      }),
-    }));
-
-    const sid = uniqueSessionId();
-    makeCollectingSession(sid, {}); // No draft yet
-
-    const result = await continueFormFilling(sid, 'garbage near FC road', TEST_USER);
-
-    expect(result.type).toBe('question');
-    expect(result.text).toBeTruthy();
-    expect(prisma.entity.create).not.toHaveBeenCalled();
-
-    const session = _sessions.get(sid);
-    expect(session.draft[12]).toBe('Garbage not collected for 3 days'); // extracted value stored
-    expect(session.phase).toBe('collecting');
   });
 
-  test('(b4) all required fields provided → transitions to confirming', async () => {
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    GoogleGenerativeAI.mockImplementation(() => ({
-      getGenerativeModel: () => ({
-        generateContent: jest.fn().mockResolvedValue({
-          response: { text: () => JSON.stringify({
-            extracted_values: { '17': 'Rajesh Kumar' },
-            next_question: null,
-            ready_for_confirmation: true,
-          })},
-        }),
-      }),
-    }));
+  // ── Ambiguity ──────────────────────────────────────────────────────────────
+  describe('ambiguity', () => {
+    test('offers the real services that could fit, then follows the choice', async () => {
+      const id = sid();
+      let r = await say(id, 'I want to volunteer for a cleanup drive');
+      expect(r.type).toBe('question');
+      const options = r.text.split('\n').filter((l) => /^\d\./.test(l));
+      expect(options.length).toBeGreaterThanOrEqual(2);
+      // Every option is a real service this citizen may start.
+      const catalog = await _loadServiceCatalog('citizen');
+      for (const o of options) expect(catalog.some((s) => o.includes(s.label))).toBe(true);
 
-    const sid = uniqueSessionId();
-    makeCollectingSession(sid, {
-      12: 'Garbage not collected for 3 days',
-      13: 'Sanitation',
-      // reporter_name will be extracted from this message
+      r = await say(id, '1');
+      expect(r.type).toBe('question');
+      expect(_sessions.get(id).service).toBeTruthy();
+      expect(options[0]).toContain(_sessions.get(id).service.label);
     });
 
-    const result = await continueFormFilling(sid, 'my name is Rajesh Kumar', TEST_USER);
-
-    expect(result.type).toBe('confirm');
-    expect(result.ready).toBe(true);
-    expect(result.summary).toBeInstanceOf(Array);
-    expect(result.text).toContain('Shall I submit');
-
-    const session = _sessions.get(sid);
-    expect(session.phase).toBe('confirming');
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// BLOCK 4 — Confirmation phase — session injection
-// ══════════════════════════════════════════════════════════════════════════════
-
-describe('continueFormFilling() — confirming phase (unit)', () => {
-  function makeConfirmingSession(sid, capability = 'Grievance', entityTypeId = 2) {
-    _sessions.set(sid, {
-      phase: 'confirming',
-      capability,
-      entityTypeId,
-      formId: 3,
-      formSchema: {},
-      requiredParams: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', mandatory: true },
-        { parameter_id: 13, field_key: 'category',          label: 'Category',          mandatory: true },
-      ],
-      allTextParams: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', mandatory: true },
-        { parameter_id: 13, field_key: 'category',          label: 'Category',          field_type: 'select',   mandatory: true },
-      ],
-      draft: { 12: 'Garbage not collected', 13: 'Sanitation' },
-      conversationHistory: [],
-      userId: CITIZEN_USER_ID,
-      userRole: 'citizen',
-      _timer: null,
+    test('too vague to act on: asks, creates nothing', async () => {
+      const id = sid();
+      const before = await prisma.entity.count({ where: { owner_user_id: citizen.user.user_id } });
+      const r = await say(id, 'hello');
+      expect(r.type).toBe('guidance');
+      expect(r.text).toMatch(/your own words/);
+      expect(await prisma.entity.count({ where: { owner_user_id: citizen.user.user_id } })).toBe(before);
     });
-  }
-
-  test('(c3) non-affirmative "maybe later" → cancelled, NO entity.create called', async () => {
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    GoogleGenerativeAI.mockImplementation(() => ({
-      getGenerativeModel: () => ({
-        generateContent: jest.fn().mockResolvedValue({
-          response: { text: () => JSON.stringify({ extracted_values: {}, next_question: null, ready_for_confirmation: false }) },
-        }),
-      }),
-    }));
-
-    const sid = uniqueSessionId();
-    makeConfirmingSession(sid);
-
-    const result = await continueFormFilling(sid, 'maybe later', TEST_USER);
-
-    expect(['cancelled', 'question', 'confirm']).toContain(result.type);
-    expect(prisma.entity.create).not.toHaveBeenCalled();
   });
 
-  test('(c4) "yes" → entity.create + entity.update + auditLog.create called once', async () => {
-    prisma.entity.create.mockResolvedValue({
-      entity_id: 555,
-      name: 'Sanitation Grievance',
-      status: 'draft',
-      entityType: { entity_type_id: 2, name: 'Grievance' },
+  // ── Validation ─────────────────────────────────────────────────────────────
+  describe('validation', () => {
+    test('an answer that is not one of the choices is refused, with the choices', async () => {
+      const id = sid();
+      await say(id, 'There is a big pothole near the school gate');
+      let r = await say(id, 'banana');
+      expect(r.type).toBe('question');
+      expect(r.invalid).toBe('category');
+      expect(r.text).toMatch(/pick one of/i);
+      expect(r.text).toMatch(/Infrastructure/);
+      expect(_sessions.get(id).draft.category).toBeUndefined();
+      r = await say(id, 'Infrastructure');
+      expect(r.invalid).toBeUndefined();
+      expect(_sessions.get(id).draft.category).toBe('Infrastructure');
     });
-    prisma.entity.update.mockResolvedValue({ entity_id: 555, status: 'submitted' });
-    prisma.$transaction.mockResolvedValue([]);
-    prisma.auditLog.create.mockResolvedValue({ audit_id: 99 });
 
-    const sid = uniqueSessionId();
-    makeConfirmingSession(sid);
+    test('an area that does not exist is not accepted', async () => {
+      const id = sid();
+      for (const t of ['There is a big pothole near the school gate', 'infrastructure', 'severe']) await say(id, t);
+      const r = await say(id, 'Atlantis');
+      expect(r.type).toBe('question');
+      expect(r.invalid).toBe('__ward');
+      expect(_sessions.get(id).ward).toBeNull();
+    });
 
-    const result = await continueFormFilling(sid, 'yes please submit it', TEST_USER);
+    test('too little to go on: asks for more instead of filing a one-word complaint', async () => {
+      const id = sid();
+      const r = await say(id, 'pothole');
+      expect(r.type).toBe('question');
+      expect(r.text).toMatch(/sentence or two/i);
+    });
 
-    expect(result.type).toBe('submitted');
-    expect(result.entity_id).toBe(555);
-
-    expect(prisma.entity.create).toHaveBeenCalledTimes(1);
-    expect(prisma.entity.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        entity_type_id: 2,
-        owner_user_id: CITIZEN_USER_ID,
-        status: 'draft',
-      }),
-    }));
-    expect(prisma.entity.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: { status: 'submitted' },
-    }));
-    expect(prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        action: 'submitted',
-        actor_user_id: CITIZEN_USER_ID,
-        reason: expect.stringContaining('Agent-initiated'),
-      }),
-    }));
+    test('each kind of answer is checked against the field metadata', () => {
+      const f = (type, extra = {}) => ({ key: 'k', type, options: [], rule: '', plain: 'thing', ...extra });
+      expect(_validateValue(f('choice', { options: ['Minor', 'Severe'] }), 'severe')).toEqual({ ok: true, value: 'Severe' });
+      expect(_validateValue(f('choice', { options: ['Minor', 'Severe'] }), 'purple').ok).toBe(false);
+      expect(_validateValue(f('number'), 'about 12').value).toBe('12');
+      expect(_validateValue(f('number'), 'lots').ok).toBe(false);
+      expect(_validateValue(f('date'), '12/11/2026').value).toBe('2026-11-12');
+      expect(_validateValue(f('date'), 'whenever').ok).toBe(false);
+      expect(_validateValue(f('email'), 'not-an-email').ok).toBe(false);
+      expect(_validateValue(f('phone'), '12').ok).toBe(false);
+      expect(_validateValue(f('longtext', { rule: 'required|min:20' }), 'too short').ok).toBe(false);
+    });
   });
 
-  test('(e) Movement follows identical submit path as Grievance', async () => {
-    prisma.entity.create.mockResolvedValue({
-      entity_id: 777,
-      name: 'Cleanliness Initiative',
-      status: 'draft',
-      entityType: { entity_type_id: 1, name: 'Movement' },
+  // ── A failed action ────────────────────────────────────────────────────────
+  describe('when sending fails', () => {
+    test('says so honestly, leaves nothing half-saved, and a second yes works', async () => {
+      const id = sid();
+      for (const t of ['The drain on our road is blocked and overflowing', 'sanitation', 'severe', WARD]) await say(id, t);
+      mockFail.next = true;
+      let r = await say(id, 'yes');
+      expect(r.type).toBe('error');
+      expect(r.text).toMatch(/could not send/i);
+      expect(r.text).toMatch(/nothing was saved/i);
+      expect(r.entity_id).toBeUndefined();
+      expect(await recordsNamed('The drain on our road')).toHaveLength(0);
+      expect(_sessions.get(id).phase).toBe('confirming');
+
+      r = await say(id, 'yes');
+      expect(r.type).toBe('submitted');
+      expect(await recordsNamed('The drain on our road')).toHaveLength(1);
     });
-    prisma.entity.update.mockResolvedValue({ entity_id: 777, status: 'submitted' });
-    prisma.$transaction.mockResolvedValue([]);
-    prisma.auditLog.create.mockResolvedValue({ audit_id: 88 });
-
-    const sid = uniqueSessionId();
-    // Movement confirming session
-    _sessions.set(sid, {
-      phase: 'confirming',
-      capability: 'Movement',
-      entityTypeId: 1,
-      formId: 2,
-      formSchema: {},
-      requiredParams: [
-        { parameter_id: 1, field_key: 'initiative_description', label: 'Initiative Description', mandatory: true },
-        { parameter_id: 2, field_key: 'initiative_type', label: 'Initiative Category', mandatory: true },
-      ],
-      allTextParams: [
-        { parameter_id: 1, field_key: 'initiative_description', label: 'Initiative Description', field_type: 'textarea', mandatory: true },
-        { parameter_id: 2, field_key: 'initiative_type', label: 'Initiative Category', field_type: 'select', mandatory: true },
-      ],
-      draft: { 1: 'Community cleanup', 2: 'Cleanliness' },
-      conversationHistory: [],
-      userId: CITIZEN_USER_ID,
-      userRole: 'citizen',
-      _timer: null,
-    });
-
-    const result = await continueFormFilling(sid, 'yes confirm', TEST_USER);
-
-    expect(result.type).toBe('submitted');
-    expect(result.entity_id).toBe(777);
-    expect(result.capability).toBe('Movement');
-    // Same Prisma call pattern as Grievance — proves no capability-specific code paths
-    expect(prisma.entity.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ entity_type_id: 1, owner_user_id: CITIZEN_USER_ID, status: 'draft' }),
-    }));
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// BLOCK 5 — HTTP endpoint validation (supertest, no Gemini needed)
-// ══════════════════════════════════════════════════════════════════════════════
-
-describe('POST /agent/chat — HTTP validation', () => {
-  test('401 if no token', async () => {
-    const res = await request(app)
-      .post('/agent/chat')
-      .set('X-Requested-With', 'ck-web')
-      .send({ sessionId: 'abc', message: 'hello' });
-    expect(res.statusCode).toBe(401);
   });
 
-  test('400 if sessionId missing', async () => {
-    const res = await request(app)
-      .post('/agent/chat')
-      .set(makeAuthHeaders())
-      .send({ message: 'hello' });
-    expect(res.statusCode).toBe(400);
-    expect(res.body.error || res.body.message || '').toMatch(/sessionId/i);
+  // ── Rules enforced in code, whatever the model says ────────────────────────
+  describe('enforcement', () => {
+    beforeEach(() => { process.env.GEMINI_API_KEY = 'test-key'; });
+
+    test('a service the model invents is ignored', async () => {
+      mockGenerate.mockResolvedValue(reply({ intent: 'file', service_id: 987654, candidate_ids: [987654] }));
+      const id = sid();
+      const r = await say(id, 'please renew my parking permit');
+      expect(['guidance', 'question']).toContain(r.type);
+      expect(_sessions.get(id).service).toBeNull();
+    });
+
+    test('a real service the citizen may not start cannot be chosen', async () => {
+      const donation = await prisma.entityType.findFirst({ where: { name: 'Donation Transaction' } });
+      expect((await _loadServiceCatalog('citizen')).some((s) => s.id === donation.entity_type_id)).toBe(false);
+      mockGenerate.mockResolvedValue(reply({ intent: 'file', service_id: donation.entity_type_id, candidate_ids: [donation.entity_type_id] }));
+      const id = sid();
+      await say(id, 'record a donation of 5000 rupees');
+      expect(_sessions.get(id).service).toBeNull();
+    });
+
+    test('invented fields and invalid values from the model never reach the draft', async () => {
+      const id = sid();
+      mockGenerate
+        .mockResolvedValueOnce(reply({ intent: 'file', service_id: grievance.entity_type_id, candidate_ids: [] }))
+        .mockResolvedValueOnce(reply({ intent: 'answer', values: { category: 'Teleportation', is_admin: 'true', severity: 'Severe', reporter_phone: '99999 00000' }, area: 'Atlantis', place: null }));
+      const r = await say(id, 'There is a pothole outside my building, it is severe');
+      const draft = _sessions.get(id).draft;
+      expect(draft.is_admin).toBeUndefined();
+      expect(draft.category).toBeUndefined();     // not one of the options
+      expect(draft.severity).toBe('Severe');      // valid, and the citizen said it
+      expect(_sessions.get(id).ward).toBeNull();  // not a real area
+      expect(r.type).toBe('question');
+    });
+
+    test('"yes" before the summary files nothing', async () => {
+      delete process.env.GEMINI_API_KEY;
+      const id = sid();
+      await say(id, 'There is a pothole outside the library entrance');
+      const r = await say(id, 'yes');
+      expect(r.type).toBe('question');
+      expect(await recordsNamed('Pothole outside the library')).toHaveLength(0);
+    });
+
+    test('a role with nothing to file is told so', async () => {
+      delete process.env.GEMINI_API_KEY;
+      const r = await continueFormFilling(sid(), 'There is a pothole outside my building', { user_id: director.user.user_id, role: 'director', name: 'D' });
+      expect(r.type).toBe('guidance');
+      expect(r.text).toMatch(/nothing you can file/i);
+    });
+
+    test('a session belongs to one person', async () => {
+      delete process.env.GEMINI_API_KEY;
+      const id = sid();
+      await say(id, 'There is a pothole outside my building');
+      const other = await createTestUser({ role: 'citizen' });
+      const r = await continueFormFilling(id, 'yes', { user_id: other.user.user_id, role: 'citizen', name: 'Other' });
+      expect(r.type).not.toBe('submitted');
+      expect(_sessions.get(id).userId).toBe(other.user.user_id);
+      expect(_sessions.get(id).service).toBeNull();
+    });
   });
 
-  test('400 if message missing', async () => {
-    const res = await request(app)
-      .post('/agent/chat')
-      .set(makeAuthHeaders())
-      .send({ sessionId: 'test-session' });
-    expect(res.statusCode).toBe(400);
-    expect(res.body.error || res.body.message || '').toMatch(/message/i);
+  // ── With the AI understanding the words ────────────────────────────────────
+  describe('with AI', () => {
+    beforeEach(() => { process.env.GEMINI_API_KEY = 'test-key'; });
+
+    test('fewer questions: what plainly follows from the message is not asked', async () => {
+      const id = sid();
+      mockGenerate
+        .mockResolvedValueOnce(reply({ intent: 'file', service_id: grievance.entity_type_id, candidate_ids: [] }))
+        .mockResolvedValueOnce(reply({ intent: 'answer', values: { category: 'Infrastructure' }, area: WARD, place: 'outside my building' }));
+      let r = await say(id, `There's a pothole outside my building in ${WARD}`);
+      expect(r.type).toBe('question');
+      expect(r.text).toMatch(/severity/i); // the only thing still unknown
+      mockGenerate.mockResolvedValueOnce(reply({ intent: 'answer', values: { severity: 'Severe' }, area: null, place: null }));
+      r = await say(id, 'it is pretty bad, cars keep swerving');
+      expect(r.type).toBe('confirm');
+      expect(_sessions.get(id).draft).toMatchObject({ category: 'Infrastructure', severity: 'Severe' });
+    });
+
+    test('if the AI does not answer, the conversation carries on with rules', async () => {
+      mockGenerate.mockImplementation(never);
+      const id = sid();
+      const started = Date.now();
+      const r = await say(id, "There's a pothole outside my building");
+      expect(Date.now() - started).toBeLessThan(1500);
+      expect(r.type).toBe('question');
+      expect(_sessions.get(id).service.id).toBe(grievance.entity_type_id);
+      // It does not wait on the AI again straight away.
+      const calls = mockGenerate.mock.calls.length;
+      await say(id, 'infrastructure');
+      expect(mockGenerate.mock.calls.length).toBe(calls);
+    });
   });
 
-  test('400 if message exceeds 2000 chars', async () => {
-    const res = await request(app)
-      .post('/agent/chat')
-      .set(makeAuthHeaders())
-      .send({ sessionId: 'test-session', message: 'a'.repeat(2001) });
-    expect(res.statusCode).toBe(400);
-    expect(res.body.error || res.body.message || '').toMatch(/long/i);
-  });
-
-  test('200 on valid request (session inject — confirming + yes)', async () => {
-    prisma.entity.create.mockResolvedValue({
-      entity_id: 999, name: 'Test Entity', status: 'draft',
-      entityType: { entity_type_id: 2, name: 'Grievance' },
-    });
-    prisma.entity.update.mockResolvedValue({ entity_id: 999, status: 'submitted' });
-    prisma.$transaction.mockResolvedValue([]);
-    prisma.auditLog.create.mockResolvedValue({ audit_id: 1 });
-
-    const httpSid = 'http-test-' + Date.now();
-    _sessions.set(httpSid, {
-      phase: 'confirming', capability: 'Grievance', entityTypeId: 2, formId: 3,
-      formSchema: {}, requiredParams: [], allTextParams: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', mandatory: true },
-      ],
-      draft: { 12: 'Test complaint' },
-      conversationHistory: [], userId: CITIZEN_USER_ID, userRole: 'citizen', _timer: null,
+  // ── Around the conversation ────────────────────────────────────────────────
+  describe('status, attachments and the HTTP edge', () => {
+    test('"what is happening with my requests" lists them with references', async () => {
+      const r = await say(sid(), 'what is the status of my requests');
+      expect(r.type).toBe('status');
+      expect(r.text).toMatch(/PR-\d{5}/);
+      expect(r.text).toMatch(/waiting for review/);
     });
 
-    const res = await request(app)
-      .post('/agent/chat')
-      .set(makeAuthHeaders())
-      .send({ sessionId: httpSid, message: 'yes' });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.type).toBe('submitted');
-    expect(res.body.data.entity_id).toBe(999);
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════════
-// BLOCK 6 — Document and Photo upload & parameter binding (V2 Feature)
-// ══════════════════════════════════════════════════════════════════════════════
-
-describe('Document and Photo Upload & Binding', () => {
-  const fileParams = [
-    { parameter_id: 20, field_key: 'photo_evidence', label: 'Photo Evidence', field_type: 'file' },
-    { parameter_id: 21, field_key: 'supporting_document', label: 'Supporting Document', field_type: 'file' },
-  ];
-
-  test('matchFileToParameter matches image to photo_evidence parameter', () => {
-    const file = { originalName: 'pothole.jpg', mimeType: 'image/jpeg' };
-    const matched = matchFileToParameter(fileParams, file);
-    expect(matched).toBeTruthy();
-    expect(matched.field_key).toBe('photo_evidence');
-    expect(matched.parameter_id).toBe(20);
-  });
-
-  test('matchFileToParameter matches pdf to supporting_document parameter', () => {
-    const file = { originalName: 'complaint_letter.pdf', mimeType: 'application/pdf' };
-    const matched = matchFileToParameter(fileParams, file);
-    expect(matched).toBeTruthy();
-    expect(matched.field_key).toBe('supporting_document');
-    expect(matched.parameter_id).toBe(21);
-  });
-
-  test('attaching file stores pendingFiles and sets draft parameter value', async () => {
-    const sid = uniqueSessionId();
-    _sessions.set(sid, {
-      phase: 'collecting',
-      capability: 'Grievance',
-      entityTypeId: 2,
-      formId: 3,
-      formSchema: {},
-      requiredParams: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', mandatory: true },
-      ],
-      allTextParams: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', mandatory: true },
-      ],
-      fileParams: [
-        { parameter_id: 20, field_key: 'photo_evidence', label: 'Photo Evidence', field_type: 'file' },
-      ],
-      pendingFiles: [],
-      draft: { 12: 'Pothole on main road' },
-      conversationHistory: [],
-      userId: CITIZEN_USER_ID,
-      userRole: 'citizen',
-      _timer: null,
+    test('a photo sent during the conversation is attached to the record', async () => {
+      const id = sid();
+      const post = (message) => request(app).post('/agent/chat').set(citizen.headers).send({ sessionId: id, message });
+      await post('The footpath tiles are broken near the market and people trip');
+      const up = await request(app).post('/agent/chat').set(citizen.headers)
+        .field('sessionId', id).field('message', '')
+        .attach('attachment', Buffer.from('fake image bytes'), { filename: 'tiles.png', contentType: 'image/png' });
+      expect(up.status).toBe(200);
+      for (const t of ['infrastructure', 'moderate', WARD]) await post(t);
+      const res = await post('yes');
+      expect(res.body.data.type).toBe('submitted');
+      expect(res.body.data.files).toEqual(['tiles.png']);
+      const files = await prisma.fileRepository.findMany({ where: { entity_id: res.body.data.entity_id } });
+      expect(files.map((f) => f.file_name)).toEqual(['tiles.png']);
     });
 
-    const file = {
-      diskPath: '/tmp/test.jpg',
-      storedName: 'agent-test-123.jpg',
-      originalName: 'road_damage.jpg',
-      mimeType: 'image/jpeg',
-      size: 1024,
-    };
-
-    const result = await continueFormFilling(sid, 'here is the photo', TEST_USER, [], file);
-
-    const session = _sessions.get(sid);
-    expect(session.pendingFiles).toHaveLength(1);
-    expect(session.pendingFiles[0].originalName).toBe('road_damage.jpg');
-    expect(session.draft[20]).toBe('road_damage.jpg');
-
-    // Since requiredParam 12 is already filled, it should transition to confirm
-    expect(result.type).toBe('confirm');
-    expect(result.summary.some(s => s.value.includes('road_damage.jpg'))).toBe(true);
-  });
-
-  test('submitting with pending files creates FileRepository and parameterValue records', async () => {
-    prisma.entity.create.mockResolvedValue({
-      entity_id: 888,
-      name: 'Pothole Grievance',
-      status: 'draft',
-      entityType: { entity_type_id: 2, name: 'Grievance' },
-    });
-    prisma.entity.update.mockResolvedValue({ entity_id: 888, status: 'submitted' });
-    prisma.$transaction.mockResolvedValue([]);
-    prisma.auditLog.create.mockResolvedValue({ audit_id: 10 });
-    prisma.fileRepository.create.mockResolvedValue({ file_id: 55 });
-
-    const sid = uniqueSessionId();
-    _sessions.set(sid, {
-      phase: 'confirming',
-      capability: 'Grievance',
-      entityTypeId: 2,
-      formId: 3,
-      formSchema: {},
-      requiredParams: [],
-      allTextParams: [
-        { parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', mandatory: true },
-      ],
-      fileParams: [
-        { parameter_id: 20, field_key: 'photo_evidence', label: 'Photo Evidence', field_type: 'file' },
-      ],
-      pendingFiles: [
-        {
-          parameter_id: 20,
-          label: 'Photo Evidence',
-          field_key: 'photo_evidence',
-          diskPath: '/tmp/test.jpg',
-          storedName: 'agent-stored-123.jpg',
-          originalName: 'pothole_photo.jpg',
-          mimeType: 'image/jpeg',
-          size: 2048,
-        },
-      ],
-      draft: { 12: 'Big pothole', 20: 'pothole_photo.jpg' },
-      conversationHistory: [],
-      userId: CITIZEN_USER_ID,
-      userRole: 'citizen',
-      _timer: null,
+    test('matchFileToParameter picks the photo field for an image and the document field for a PDF', () => {
+      const fields = [{ key: 'photo_evidence', label: 'Photo Evidence' }, { key: 'supporting_document', label: 'Supporting Document' }];
+      expect(matchFileToParameter(fields, { mimeType: 'image/jpeg' }).key).toBe('photo_evidence');
+      expect(matchFileToParameter(fields, { mimeType: 'application/pdf' }).key).toBe('supporting_document');
+      expect(matchFileToParameter([], { mimeType: 'image/jpeg' })).toBeNull();
     });
 
-    const result = await continueFormFilling(sid, 'yes', TEST_USER);
-
-    expect(result.type).toBe('submitted');
-    expect(result.entity_id).toBe(888);
-    expect(result.files).toContain('pothole_photo.jpg');
-
-    // Verify FileRepository.create was called
-    expect(prisma.fileRepository.create).toHaveBeenCalledTimes(1);
-    expect(prisma.fileRepository.create).toHaveBeenCalledWith({
-      data: {
-        entity_id: 888,
-        parameter_id: 20,
-        file_name: 'pothole_photo.jpg',
-        path: 'agent-stored-123.jpg',
-      },
+    test('401 without a session; 400 for a missing session id, an empty or an over-long message', async () => {
+      expect((await request(app).post('/agent/chat').set('X-Requested-With', 'ck-web').send({ sessionId: 'x', message: 'hi' })).status).toBe(401);
+      expect((await request(app).post('/agent/chat').set(citizen.headers).send({ message: 'hi' })).status).toBe(400);
+      expect((await request(app).post('/agent/chat').set(citizen.headers).send({ sessionId: 'x' })).status).toBe(400);
+      expect((await request(app).post('/agent/chat').set(citizen.headers).send({ sessionId: 'x', message: 'a'.repeat(2001) })).status).toBe(400);
     });
 
-    // Verify parameterValue was created for the file
-    expect(prisma.parameterValue.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        entity_id: 888,
-        parameter_id: 20,
-        value: 'pothole_photo.jpg',
-      }),
-    }));
-  });
-
-  test('POST /agent/chat accepts multipart upload with attachment file', async () => {
-    prisma.entity.create.mockResolvedValue({
-      entity_id: 999, name: 'Uploaded Photo Grievance', status: 'draft',
-      entityType: { entity_type_id: 2, name: 'Grievance' },
+    test('clearing a session forgets it', async () => {
+      const id = sid();
+      await say(id, 'There is a pothole outside my building');
+      expect(_sessions.has(id)).toBe(true);
+      clearSession(id);
+      expect(_sessions.has(id)).toBe(false);
     });
-    prisma.entity.update.mockResolvedValue({ entity_id: 999, status: 'submitted' });
-    prisma.$transaction.mockResolvedValue([]);
-    prisma.auditLog.create.mockResolvedValue({ audit_id: 1 });
-    prisma.fileRepository.create.mockResolvedValue({ file_id: 1 });
-
-    const httpSid = 'http-file-test-' + Date.now();
-    _sessions.set(httpSid, {
-      phase: 'confirming', capability: 'Grievance', entityTypeId: 2, formId: 3,
-      formSchema: {}, requiredParams: [], allTextParams: [], fileParams: [],
-      pendingFiles: [], draft: {},
-      conversationHistory: [], userId: CITIZEN_USER_ID, userRole: 'citizen', _timer: null,
-    });
-
-    const res = await request(app)
-      .post('/agent/chat')
-      .set(makeAuthHeaders())
-      .field('sessionId', httpSid)
-      .field('message', 'yes')
-      .attach('attachment', Buffer.from('fake image content'), 'test_evidence.png');
-
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
-  });
-  test('location from [User location: ...] is included in confirmation summary and saved to entity', async () => {
-    prisma.entity.create.mockResolvedValue({
-      entity_id: 101, name: 'Streetlights Grievance', status: 'draft',
-      entityType: { entity_type_id: 2, name: 'Grievance' },
-    });
-    prisma.entity.update.mockResolvedValue({ entity_id: 101, status: 'submitted' });
-    prisma.$transaction.mockResolvedValue([]);
-    prisma.auditLog.create.mockResolvedValue({ audit_id: 101 });
-
-    const sid = 'loc-test-' + Date.now();
-    _sessions.set(sid, {
-      phase: 'collecting', capability: 'Grievance', entityTypeId: 2, formId: 3,
-      formSchema: {}, requiredParams: [{ parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', mandatory: true }],
-      allTextParams: [{ parameter_id: 12, field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', mandatory: true }],
-      fileParams: [], pendingFiles: [], draft: {},
-      location: null, area: null, latitude: null, longitude: null,
-      conversationHistory: [], userId: CITIZEN_USER_ID, userRole: 'citizen', _timer: null,
-    });
-
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    GoogleGenerativeAI.mockImplementation(() => ({
-      getGenerativeModel: () => ({
-        generateContent: jest.fn().mockResolvedValue({
-          response: { text: () => JSON.stringify({
-            extracted_values: { '12': 'Streetlights are broken' },
-            location: 'JM Road, Shivajinagar',
-            area: 'Shivajinagar',
-            next_question: null,
-            ready_for_confirmation: true,
-          })},
-        }),
-      }),
-    }));
-
-    // User message with device location
-    const msg = '[User location: FC Road, Shivajinagar (18.5204°N, 73.8567°E)] streetlights are completely broken on JM Road';
-    const result = await continueFormFilling(sid, msg, TEST_USER);
-
-    expect(result.type).toBe('confirm');
-    expect(result.ready).toBe(true);
-
-    // Verify location is in the confirmation summary
-    const locRow = result.summary.find(s => s.label === 'Location / Landmark');
-    expect(locRow).toBeTruthy();
-    expect(locRow.value).toContain('JM Road');
-
-    // Confirm submission
-    const confirmRes = await continueFormFilling(sid, 'yes', TEST_USER);
-    expect(confirmRes.type).toBe('submitted');
-
-    // Verify entity was created with location and coordinates
-    expect(prisma.entity.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        location: expect.stringContaining('JM Road'),
-        area: 'Shivajinagar',
-        latitude: expect.any(Number),
-        longitude: expect.any(Number),
-      }),
-    }));
-  });
-  test('agent asks citizen for location when not explicitly mentioned in text despite device location', async () => {
-    const sid = 'ask-loc-test-' + Date.now();
-    _sessions.set(sid, {
-      phase: 'collecting', capability: 'Movement', entityTypeId: 1, formId: 2,
-      formSchema: {}, requiredParams: [{ parameter_id: 1, field_key: 'initiative_description', label: 'Initiative Description', mandatory: true }],
-      allTextParams: [{ parameter_id: 1, field_key: 'initiative_description', label: 'Initiative Description', field_type: 'textarea', mandatory: true }],
-      fileParams: [], pendingFiles: [], draft: {},
-      location: null, area: null, latitude: null, longitude: null, locationConfirmed: false,
-      conversationHistory: [], userId: CITIZEN_USER_ID, userRole: 'citizen', _timer: null,
-    });
-
-    const { GoogleGenerativeAI } = require('@google/generative-ai');
-    GoogleGenerativeAI.mockImplementation(() => ({
-      getGenerativeModel: () => ({
-        generateContent: jest.fn().mockResolvedValue({
-          response: { text: () => JSON.stringify({
-            extracted_values: { '1': 'Collect people for safety management concerns' },
-            location: null,
-            area: null,
-            location_confirmed: false,
-            next_question: null,
-            ready_for_confirmation: false,
-          })},
-        }),
-      }),
-    }));
-
-    // Message has device location Dhayari, but NO explicit target area in text
-    const msg = '[User location: Dhayari (18.4485°N, 73.8058°E)] Collect people for safety management concerns';
-    const result = await continueFormFilling(sid, msg, TEST_USER);
-
-    // Should ASK user for area/location, NOT confirm immediately
-    expect(result.type).toBe('question');
-    expect(result.text).toMatch(/area|location|bring this initiative into action|Dhayari/i);
-
-    // Citizen answers with specific target area (e.g. Shivajinagar)
-    GoogleGenerativeAI.mockImplementation(() => ({
-      getGenerativeModel: () => ({
-        generateContent: jest.fn().mockResolvedValue({
-          response: { text: () => JSON.stringify({
-            extracted_values: {},
-            location: 'Shivajinagar near Modern College',
-            area: 'Shivajinagar',
-            location_confirmed: true,
-            next_question: null,
-            ready_for_confirmation: true,
-          })},
-        }),
-      }),
-    }));
-
-    const answerRes = await continueFormFilling(sid, 'conduct in Shivajinagar', TEST_USER);
-    expect(answerRes.type).toBe('confirm');
-    expect(answerRes.ready).toBe(true);
-
-    const locRow = answerRes.summary.find(s => s.label === 'Location / Landmark');
-    expect(locRow).toBeTruthy();
-    expect(locRow.value).toMatch(/Shivajinagar/i);
   });
 });

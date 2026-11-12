@@ -1,1185 +1,753 @@
 /**
- * CIVIC-KALKI — Conversational Agent: Form-Filling Engine (v2 — with Multimodal Doc/Photo Upload)
+ * CIVIC-KALKI — Civic assistant: conversation engine
  *
- * Responsibilities:
- *  1. Maintain in-memory per-session state (draft values, schema, phase, pending files)
- *  2. Fetch the real form schema from the existing forms endpoint (internal call via Prisma directly
- *     to avoid circular HTTP — same data the REST endpoint returns)
- *  3. Drive Gemini to extract field values from conversation turns AND uploaded doc/photo evidence
- *  4. Support document/photo uploads directly via chat:
- *     - Associates uploaded files with corresponding form file parameters (photo_evidence, supporting_document, etc.)
- *     - Inspects uploaded images/photos via Gemini multimodal vision to extract civic problem descriptions,
- *       categories, severity, and text details into the form automatically
- *     - Upon confirmation, writes records to FileRepository and ParameterValue, identical to /files/upload
- *  5. Signal when all required fields are filled and ready for confirmation
- *  6. Execute the actual submission (POST /entities + POST /entities/:id/values +
- *     POST /entities/:id/transition) using the citizen's own JWT identity
+ * A citizen says what they need in their own words; the assistant works out
+ * which service that is, asks only for what is still missing, one question at
+ * a time, reads it back, and files the real record once the citizen says yes.
  *
- * Session store: plain in-memory Map keyed by sessionId (UUID from client).
- * Sessions expire after SESSION_TTL_MS of inactivity.
+ * Everything that matters is decided HERE, in code, from metadata:
+ *   - which services exist and which this person may start
+ *       (EntityType + FormMaster + a WorkflowMaster step out of "draft" for their role);
+ *   - what has to be known before filing (the form's mandatory fields, and a ward,
+ *       because work is routed by area);
+ *   - whether each answer is acceptable (field type, options, validation rule);
+ *   - that nothing is created before validation passes AND the citizen confirms;
+ *   - that filing goes through the workflow engine as the citizen, so
+ *       permissions, audit, approval history and rules apply as for any record.
+ * The understanding layer (agentIntentRouter.js) only reads language. With no
+ * AI available it falls back to rules and the conversation still works.
+ *
+ * Replies are fixed sentences written here, in plain language. The model never
+ * writes to the citizen.
  */
 
-const aiClient = require('./aiClient');
 const fs = require('fs');
 const prisma = require('../db');
-const { routeIntent } = require('./agentIntentRouter');
+const understanding = require('./agentIntentRouter');
+const { validateWorkflowTransition, executeWorkflowTransition } = require('./workflowEngine');
+const { firstWorkflowStatus } = require('./ruleEngine');
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-
-// ── Known Pune Coordinates for Landmark & Area Resolution ─────────────────────
-const PUNE_KNOWN_COORDINATES = {
-  'shivajinagar': { lat: 18.5204, lng: 73.8567, area: 'Shivajinagar' },
-  'fc road': { lat: 18.5246, lng: 73.8415, area: 'Shivajinagar' },
-  'fergusson': { lat: 18.5246, lng: 73.8415, area: 'Shivajinagar' },
-  'jm road': { lat: 18.5283, lng: 73.8475, area: 'Shivajinagar' },
-  'jungli maharaj': { lat: 18.5283, lng: 73.8475, area: 'Shivajinagar' },
-  'model colony': { lat: 18.5326, lng: 73.8340, area: 'Shivajinagar' },
-  'dhayari': { lat: 18.4485, lng: 73.8058, area: 'Dhayari' },
-  'sinhagad road': { lat: 18.4720, lng: 73.8240, area: 'Sinhagad Road' },
-  'vadgaon': { lat: 18.4680, lng: 73.8320, area: 'Vadgaon' },
-  'warje': { lat: 18.4800, lng: 73.8000, area: 'Warje' },
-  'kothrud': { lat: 18.5074, lng: 73.8077, area: 'Kothrud' },
-  'karve road': { lat: 18.5020, lng: 73.8180, area: 'Kothrud' },
-  'karve statue': { lat: 18.5020, lng: 73.8180, area: 'Kothrud' },
-  'baner': { lat: 18.5590, lng: 73.7868, area: 'Baner' },
-  'aundh': { lat: 18.5580, lng: 73.8075, area: 'Aundh' },
-  'viman nagar': { lat: 18.5679, lng: 73.9143, area: 'Viman Nagar' },
-  'hadapsar': { lat: 18.5089, lng: 73.9259, area: 'Hadapsar' },
-  'camp': { lat: 18.5173, lng: 73.8804, area: 'Pune Camp' },
-  'mg road': { lat: 18.5173, lng: 73.8804, area: 'Pune Camp' },
-  'swargate': { lat: 18.5018, lng: 73.8636, area: 'Swargate' },
-  'deccan': { lat: 18.5177, lng: 73.8415, area: 'Deccan Gymkhana' },
-  'wakad': { lat: 18.5987, lng: 73.7688, area: 'Wakad' },
-  'hinjewadi': { lat: 18.5913, lng: 73.7389, area: 'Hinjewadi' },
-  'pimpri': { lat: 18.6279, lng: 73.8009, area: 'Pimpri-Chinchwad' },
-  'chinchwad': { lat: 18.6298, lng: 73.7997, area: 'Pimpri-Chinchwad' },
-  'katraj': { lat: 18.4575, lng: 73.8677, area: 'Katraj' },
-  'yerwada': { lat: 18.5529, lng: 73.8797, area: 'Yerwada' },
-  'kalyani nagar': { lat: 18.5463, lng: 73.9033, area: 'Kalyani Nagar' },
-  'magarpatta': { lat: 18.5158, lng: 73.9272, area: 'Hadapsar' },
-  'senapati bapat': { lat: 18.5308, lng: 73.8291, area: 'Shivajinagar' },
-  'sb road': { lat: 18.5308, lng: 73.8291, area: 'Shivajinagar' },
-  'law college': { lat: 18.5167, lng: 73.8299, area: 'Erandwane' },
-  'erandwane': { lat: 18.5100, lng: 73.8300, area: 'Erandwane' },
-};
-
-function parseDeviceLocation(message) {
-  if (!message) return null;
-  const match = message.match(/\[(?:User )?location:\s*([^()\]]+?)(?:\s*\(([0-9.-]+)[°]?[NS]?,\s*([0-9.-]+)[°]?[EW]?\))?\]/i);
-  if (!match) return null;
-  const rawArea = match[1].trim();
-  const lat = match[2] ? parseFloat(match[2]) : null;
-  const lng = match[3] ? parseFloat(match[3]) : null;
-  const parts = rawArea.split(',').map(s => s.trim()).filter(Boolean);
-  const area = parts.length > 1 ? parts[parts.length - 1] : rawArea;
-  return {
-    location: rawArea,
-    area: area,
-    latitude: lat,
-    longitude: lng,
-  };
-}
-
-
-function hasExplicitLocationInText(text) {
-  if (!text) return false;
-  // Strip out [User location: ...] tag before analyzing citizen's actual message
-  const clean = text.replace(/\[(?:User )?location:[^\]]+\]/gi, '').trim().toLowerCase();
-  if (!clean) return false;
-
-  // Check if citizen text mentions any known Pune localities
-  for (const key of Object.keys(PUNE_KNOWN_COORDINATES)) {
-    if (clean.includes(key)) return true;
-  }
-
-  // Check for common affirmative confirmation of suggested area
-  if (/^(?:yes|yeah|sure|yep|correct|in this area|same area|here|conduct here|do it here)\b/i.test(clean)) {
-    return true;
-  }
-
-  // Check for common location prepositions followed by place names
-  if (/(?:at|in|near|on|behind|opposite|outside|around)\s+[a-z0-9\s]{2,25}(?:road|street|nagar|colony|gate|chowk|station|college|park|bridge|lane|ward|area|pune|campus|market|bazaar)/i.test(clean)) {
-    return true;
-  }
-
-  return false;
-}
-
-function resolveLocationAndCoords(extractedLoc, extractedArea, deviceLoc) {
-  let location = extractedLoc || (deviceLoc ? deviceLoc.location : null);
-  let area = extractedArea || (deviceLoc ? deviceLoc.area : null);
-  let lat = deviceLoc ? deviceLoc.latitude : null;
-  let lng = deviceLoc ? deviceLoc.longitude : null;
-
-  if (location) {
-    const locLower = location.toLowerCase();
-    for (const [key, val] of Object.entries(PUNE_KNOWN_COORDINATES)) {
-      if (locLower.includes(key)) {
-        if (!area || area.toLowerCase() === 'pune') area = val.area;
-        lat = val.lat;
-        lng = val.lng;
-        break;
-      }
-    }
-  }
-
-  return { location, area, latitude: lat, longitude: lng };
-}
-
-const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
-
-// Field types that represent file/photo attachments
+const SESSION_TTL_MS = 30 * 60 * 1000;
 const FILE_FIELD_TYPES = new Set(['file', 'upload', 'image', 'attachment']);
+// Handled by the moderated Civic Buzz flow, not by the generic record engine.
+const NOT_GENERIC = new Set(['civic campaign']);
 
-// ── In-memory session store ───────────────────────────────────────────────────
-
-/**
- * @typedef {Object} AgentSession
- * @property {'intent'|'collecting'|'confirming'|'done'} phase
- * @property {string|null} capability        - 'Grievance' | 'Movement' | null
- * @property {number|null} entityTypeId
- * @property {number|null} formId
- * @property {Object|null} formSchema        - Full schema from GET /forms/:id/schema
- * @property {Array}       requiredParams    - Flat list of required non-file parameters
- * @property {Array}       allTextParams     - Flat list of all non-file parameters
- * @property {Array}       fileParams        - Flat list of file/image parameters
- * @property {Array}       pendingFiles      - Uploaded files ready to attach on submission
- * @property {Object}      draft             - { [parameter_id]: value }
- * @property {Array}       conversationHistory - [{role:'user'|'agent', content:string}]
- * @property {number}      userId
- * @property {string}      userRole
- * @property {NodeJS.Timeout} _timer
- */
-
-/** @type {Map<string, AgentSession>} */
+/** @type {Map<string, object>} */
 const sessions = new Map();
 
-// ── Session lifecycle ─────────────────────────────────────────────────────────
+// ── Sessions ─────────────────────────────────────────────────────────────────
 
 function touchSession(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return;
   if (session._timer) clearTimeout(session._timer);
   session._timer = setTimeout(() => {
-    // Clean up any unsubmitted pending file attachments from disk
-    if (Array.isArray(session.pendingFiles) && session.phase !== 'done') {
-      for (const f of session.pendingFiles) {
-        if (f.diskPath && fs.existsSync(f.diskPath)) {
-          fs.unlink(f.diskPath, () => {});
-        }
-      }
-    }
+    discardPendingFiles(session);
     sessions.delete(sessionId);
-    console.log(`[AGENT SESSION] Session ${sessionId} expired and removed.`);
   }, SESSION_TTL_MS);
   // Do not keep the process (or a Jest run) alive just for session expiry.
   if (typeof session._timer.unref === 'function') session._timer.unref();
 }
 
-function createSession(sessionId, userId, userRole) {
-  const session = {
-    phase: 'intent',
-    capability: null,
-    entityTypeId: null,
-    formId: null,
-    formSchema: null,
-    requiredParams: [],
-    allTextParams: [],
-    fileParams: [],
-    pendingFiles: [],
-    draft: {},
-    location: null,
-    area: null,
-    latitude: null,
-    longitude: null,
-    locationConfirmed: false,
-    conversationHistory: [],
+function newSession(userId, userRole) {
+  return {
+    phase: 'open',            // open → choosing → collecting → confirming → done
     userId,
     userRole,
-    _timer: null,
+    service: null,            // { id, label, fields, fileFields, firstStatus }
+    choices: [],              // service ids offered when the request was ambiguous
+    draft: {},                // { field key: validated value }
+    ward: null,               // { id, name }
+    place: null,              // free-text landmark
+    coords: null,             // { latitude, longitude } from the device, if shared
+    asked: null,              // key of the question just asked ('__ward' for the area)
+    said: [],                 // what the citizen has said (for context)
+    pendingFiles: [],
+    lastAiFailure: 0,
   };
+}
+
+function getSession(sessionId, userId, userRole) {
+  const existing = sessions.get(sessionId);
+  if (existing && existing.userId === userId) {
+    touchSession(sessionId);
+    return existing;
+  }
+  const session = newSession(userId, userRole);
   sessions.set(sessionId, session);
   touchSession(sessionId);
   return session;
 }
 
-function getSession(sessionId, userId, userRole) {
-  if (!sessions.has(sessionId)) {
-    return createSession(sessionId, userId, userRole);
+function discardPendingFiles(session) {
+  for (const f of session.pendingFiles || []) {
+    if (f.diskPath && fs.existsSync(f.diskPath)) fs.unlink(f.diskPath, () => {});
   }
-  const session = sessions.get(sessionId);
-  touchSession(sessionId);
-  return session;
+  session.pendingFiles = [];
 }
 
 function clearSession(sessionId) {
   const session = sessions.get(sessionId);
-  if (session) {
-    if (session._timer) clearTimeout(session._timer);
-    if (Array.isArray(session.pendingFiles) && session.phase !== 'done') {
-      for (const f of session.pendingFiles) {
-        if (f.diskPath && fs.existsSync(f.diskPath)) {
-          fs.unlink(f.diskPath, () => {});
-        }
-      }
-    }
-  }
+  if (!session) return;
+  if (session._timer) clearTimeout(session._timer);
+  if (session.phase !== 'done') discardPendingFiles(session);
   sessions.delete(sessionId);
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Metadata: services, fields, wards ────────────────────────────────────────
 
-function cleanJsonResponseText(text) {
-  if (!text) return '';
-  let cleaned = text.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  }
-  return cleaned.trim();
+function plainLabelOfService(type) {
+  // The first sentence of the description is how the service is described to a citizen.
+  const d = String(type.description || '').split(/[:.]/)[0].trim();
+  return d || type.name;
 }
 
 /**
- * Match an attached file to an appropriate file parameter in the form schema.
- * @param {Array} fileParams - Form parameters with field_type in FILE_FIELD_TYPES
- * @param {Object} attachedFile - { originalName, mimeType, diskPath, storedName }
- * @returns {Object|null} matched parameter
+ * The services this role may start: a real entity type, with a form, whose
+ * workflow lets this role move a draft forward. Nothing else can be filed.
  */
-function matchFileToParameter(fileParams, attachedFile) {
-  if (!Array.isArray(fileParams) || fileParams.length === 0 || !attachedFile) return null;
-
-  const isImage = attachedFile.mimeType && attachedFile.mimeType.startsWith('image/');
-
-  if (isImage) {
-    const photoParam = fileParams.find(p =>
-      /photo|image|evidence|picture|pic/i.test(p.field_key) ||
-      /photo|image|evidence|picture|pic/i.test(p.label)
-    );
-    if (photoParam) return photoParam;
-  } else {
-    const docParam = fileParams.find(p =>
-      /doc|document|supporting|proof|file|attachment/i.test(p.field_key) ||
-      /doc|document|supporting|proof|file|attachment/i.test(p.label)
-    );
-    if (docParam) return docParam;
-  }
-
-  // Fallback to first available file parameter
-  return fileParams[0];
-}
-
-/**
- * Flatten form schema to lists of parameters.
- * Retains backward compatibility for tests expecting { required, allText }.
- * @param {Object} schema - formSchema.data
- * @returns {{ required: Array, allText: Array, fileParams: Array }}
- */
-function extractParameters(schema) {
-  const required = [];
-  const allText = [];
-  const fileParams = [];
-
-  for (const section of (schema.sections || [])) {
-    for (const subsection of (section.subsections || [])) {
-      for (const param of (subsection.parameters || [])) {
-        const fieldType = String(param.field_type || '').toLowerCase();
-        const enriched = {
-          parameter_id: param.parameter_id,
-          field_key: param.field_key,
-          label: param.label,
-          field_type: param.field_type,
-          control_type: param.control_type,
-          mandatory: param.mandatory || param.is_mandatory || false,
-          options: param.options || param.meta_options || null,
-        };
-
-        if (FILE_FIELD_TYPES.has(fieldType)) {
-          fileParams.push(enriched);
-          continue; // keep allText and required free of file fields
-        }
-
-        allText.push(enriched);
-        if (enriched.mandatory) required.push(enriched);
-      }
-    }
-  }
-
-  return { required, allText, fileParams };
-}
-
-/**
- * Load the form schema from DB directly (avoids circular HTTP self-call).
- * Mirrors the exact Prisma query in GET /forms/:formId/schema.
- * @param {number} entityTypeId
- * @returns {Promise<Object>} formSchema in the same shape as the REST response
- */
-async function loadFormSchemaForEntityType(entityTypeId) {
-  const form = await prisma.formMaster.findFirst({
-    where: { entity_type_id: entityTypeId },
+async function loadServiceCatalog(role) {
+  const types = await prisma.entityType.findMany({
+    where: {
+      formMasters: { some: {} },
+      workflowMasters: { some: { trigger: 'draft', stage: role } },
+    },
     include: {
-      entityType: { select: { entity_type_id: true, name: true } },
-      sections: {
-        orderBy: { display_order: 'asc' },
-        include: {
-          subsections: {
-            include: {
-              parameters: {
-                orderBy: { display_order: 'asc' },
-                select: {
-                  parameter_id: true,
-                  field_key: true,
-                  label: true,
-                  field_type: true,
-                  control_type: true,
-                  display_order: true,
-                  options: true,
-                  mandatory: true,
-                  validation_rule: true,
-                },
-              },
-            },
-          },
-        },
+      formMasters: {
+        orderBy: { form_id: 'asc' },
+        take: 1,
+        include: { sections: { include: { subsections: { include: { parameters: true } } } } },
       },
     },
+    orderBy: { entity_type_id: 'asc' },
   });
 
-  if (!form) return null;
-
-  return {
-    form_id: form.form_id,
-    form_name: form.form_name,
-    entity_type: form.entityType,
-    sections: form.sections.map(sec => ({
-      section_id: sec.section_id,
-      section_name: sec.section_name,
-      subsections: sec.subsections.map(sub => ({
-        subsection_id: sub.subsection_id,
-        subsection_name: sub.subsection_name,
-        parameters: sub.parameters
-          .filter(p => p.field_key && p.label)
-          .map(p => ({
-            parameter_id: p.parameter_id,
-            field_key: p.field_key,
-            label: p.label,
-            field_type: p.field_type,
-            control_type: p.control_type,
-            mandatory: p.mandatory,
-            options: p.options,
-          })),
-      })),
-    })),
-  };
-}
-
-/**
- * Resolve entity_type_id for a capability name ('Grievance' | 'Movement').
- * Does NOT hardcode IDs — looks up from DB by name.
- * @param {string} capabilityName
- * @returns {Promise<number|null>}
- */
-async function resolveEntityTypeId(capabilityName) {
-  const entityType = await prisma.entityType.findFirst({
-    where: { name: { equals: capabilityName, mode: 'insensitive' } },
-  });
-  return entityType ? entityType.entity_type_id : null;
-}
-
-/**
- * Synthesize a meaningful entity.name from draft values + capability type.
- * @param {string} capability
- * @param {Object} draft - { parameter_id: value }
- * @param {Array}  allTextParams
- * @param {string} fallbackMessage
- */
-function synthesizeEntityName(capability, draft, allTextParams, fallbackMessage = '', sessionLocation = null) {
-  // Try to find a location or category value to make a meaningful name
-  const paramByKey = {};
-  for (const p of allTextParams) {
-    paramByKey[p.field_key] = draft[p.parameter_id];
-  }
-
-  const location = sessionLocation || paramByKey['location'] || paramByKey['area'] || paramByKey['landmark'] || null;
-  const category = paramByKey['category'] || paramByKey['initiative_type'] || null;
-
-  if (capability === 'Grievance') {
-    const parts = [];
-    if (category) parts.push(category);
-    if (location) parts.push(location);
-    if (parts.length > 0) return `${parts.join(' — ')} Grievance`;
-    // Fallback: use first 60 chars of complaint details
-    const details = paramByKey['complaint_details'];
-    if (details) return details.slice(0, 60).trim() + (details.length > 60 ? '...' : '');
-    return `Civic Grievance — ${new Date().toLocaleDateString('en-IN')}`;
-  }
-
-  if (capability === 'Movement') {
-    const type = paramByKey['initiative_type'];
-    if (type && location) return `${type} Initiative — ${location}`;
-    if (type) return `${type} Civic Initiative`;
-    const desc = paramByKey['initiative_description'];
-    if (desc) return desc.slice(0, 60).trim() + (desc.length > 60 ? '...' : '');
-    return `Civic Initiative — ${new Date().toLocaleDateString('en-IN')}`;
-  }
-
-  return fallbackMessage.slice(0, 80) || `${capability} Submission`;
-}
-
-// ── Gemini: form-filling extraction ──────────────────────────────────────────
-
-/**
- * Build the Gemini prompt for form-filling extraction.
- * @param {AgentSession} session
- * @param {string} userMessage
- * @param {Object|null} attachedFile
- */
-function buildFormFillPrompt(session, userMessage, attachedFile = null) {
-  const filledSummary = session.requiredParams
-    .map(p => {
-      const val = session.draft[p.parameter_id];
-      return `- ${p.label}: ${val !== undefined ? `"${val}"` : '(not yet filled)'} ${p.mandatory ? '[REQUIRED]' : '[optional]'}`;
-    })
-    .join('\n') + `\n- Incident Location / Landmark: ${session.location ? `"${session.location}"` : '(not yet specified)'} [REQUIRED]`;
-
-  const missingRequired = session.requiredParams.filter(p => session.draft[p.parameter_id] === undefined);
-
-  const paramDetails = session.allTextParams.map(p => {
-    let desc = `  - parameter_id: ${p.parameter_id}, label: "${p.label}", field_key: "${p.field_key}", mandatory: ${p.mandatory}`;
-    if (p.options) {
-      const choices = Array.isArray(p.options) ? p.options : (p.options.choices || null);
-      if (choices) desc += `, choices: [${choices.map(c => `"${c}"`).join(', ')}]`;
-    }
-    return desc;
-  }).join('\n');
-
-  const conversationText = session.conversationHistory.slice(-6).map(t =>
-    `${t.role === 'user' ? 'Citizen' : 'Agent'}: ${t.content}`
-  ).join('\n');
-
-  let fileInstructions = '';
-  if (attachedFile) {
-    fileInstructions = `
-ATTACHED FILE:
-- Filename: "${attachedFile.originalName}"
-- Type: ${attachedFile.mimeType}
-- Note: The citizen has uploaded this file/photo. Inspect the attached image or document carefully:
-  * If this is a photo of a civic problem (e.g. road damage, pothole, overflowing garbage, water leakage, fallen tree, broken street light):
-    - Summarize what is visible in "complaint_details" or "problem_need".
-    - Determine the appropriate "category" / "initiative_type" (e.g. Sanitation, Infrastructure, Safety, etc.).
-    - Determine the appropriate "severity" (Minor, Moderate, Severe, Critical).
-  * If this is a document photo (e.g., government letter, utility bill, id proof, municipal notice):
-    - Read the text from the document (OCR).
-    - Extract any relevant dates, complaint descriptions, reference numbers, or names into the corresponding fields.
-  * In "next_question", acknowledge what you observed in the photo/document (e.g., "I see the photo of the pothole you uploaded...") so the citizen knows the AI has recognized it.
-`;
-  }
-
-  return `
-You are a civic form-filling assistant for CIVIC-KALKI, helping a citizen complete a ${session.capability} form.
-Your job is to extract field values from the citizen's message and any attached image/document, and determine what to ask next.
-
-FORM PARAMETERS (text and choice fields):
-${paramDetails}
-
-CURRENT FILL STATUS:
-${filledSummary}
-
-RELEVANT CONVERSATION:
-${conversationText || '(start of conversation)'}
-
-CITIZEN'S LATEST MESSAGE:
-"${userMessage}"
-${fileInstructions}
-INSTRUCTIONS:
-1. Extract ANY parameter values present in the citizen's message or observable in the attached photo/document. Map them to the correct integer parameter_id.
-   For select/dropdown fields, normalize the value to the closest valid choice listed above.
-   Use the integer parameter_id as the string key in extracted_values.
-2. LOCATION IS A MANDATORY ATTRIBUTE AND MUST BE CONFIRMED WITH THE CITIZEN:
-   - A citizen may currently be in one area (e.g. Dhayari) but conduct an initiative or lodge a complaint for ANY other area (e.g. Shivajinagar, Kothrud, Camp, FC Road, etc.).
-   - NEVER silently assume the incident or initiative takes place at the device location without the citizen's explicit confirmation!
-   - Did the citizen's text explicitly specify or confirm where this takes place? (e.g. "on JM Road", "in Kothrud", "in Dhayari", "conduct at FC Road", "yes in Dhayari")
-     * If YES: Set "location" to that place, "area" to the neighborhood, and "location_confirmed": true.
-     * If NO:
-       - Set "location_confirmed": false.
-       - Do NOT set ready_for_confirmation to true!
-       - In "next_question", ask the citizen at what area or location they would like to conduct this initiative or where the issue occurred:
-         For an initiative: "At what area or location would you like to bring this into action? (We noticed your location is [detected area] — would you like to conduct it in [detected area], or somewhere else like FC Road or Kothrud?)"
-         For a grievance: "At what location or street did this issue occur? (We noticed your location is [detected area] — did this happen in [detected area], or at another street/landmark?)"
-3. If all REQUIRED parameters AND location are confirmed by the citizen, set ready_for_confirmation to true and next_question to null.
-4. If there are still missing REQUIRED parameters or unconfirmed location, ask for the SINGLE MOST IMPORTANT missing one. ONE question only.
-5. If the citizen provided a value for an OPTIONAL field, capture it.
-
-MISSING REQUIRED PARAMETERS (ask about these first, one at a time):
-${missingRequired.map(p => `- ${p.label} (parameter_id: ${p.parameter_id})`).join('\n') || '(none — all required fields are filled)'}
-
-Respond with ONLY a single raw valid JSON object. No markdown, no extra text.
-
-Required schema:
-{
-  "extracted_values": { "<parameter_id_as_string>": "<value>" },
-  "location": "<specific incident street, address or landmark, or null if unknown>",
-  "area": "<neighborhood or ward name, or null>",
-  "location_confirmed": <true if citizen explicitly named or confirmed this place in text, otherwise false>,
-  "next_question": "<string question to ask citizen, or null if all required fields and location are confirmed>",
-  "ready_for_confirmation": <true|false>
-}
-`.trim();
-}
-
-/**
- * Call Gemini to extract form field values from a user message and optional attached file.
- * @param {AgentSession} session
- * @param {string} userMessage
- * @param {Object|null} attachedFile
- * @returns {Promise<{extracted_values:Object, next_question:string|null, ready_for_confirmation:boolean}>}
- */
-async function extractFormValues(session, userMessage, attachedFile = null) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey.trim() === '') {
-    return { extracted_values: {}, next_question: 'I\'m unable to process your request right now (AI service unavailable). Please try again later or use the manual form.', ready_for_confirmation: false };
-  }
-
-  const model = aiClient.getModel();
-  const promptText = buildFormFillPrompt(session, userMessage, attachedFile);
-
-  // Prepare multimodal content if an image file is attached
-  let contentPayload = promptText;
-  if (attachedFile && attachedFile.diskPath && fs.existsSync(attachedFile.diskPath) && attachedFile.mimeType && attachedFile.mimeType.startsWith('image/')) {
-    try {
-      const imgBuffer = fs.readFileSync(attachedFile.diskPath);
-      const imagePart = {
-        inlineData: {
-          data: imgBuffer.toString('base64'),
-          mimeType: attachedFile.mimeType,
-        },
-      };
-      contentPayload = [promptText, imagePart];
-    } catch (readErr) {
-      console.warn('[AGENT FORM FILL] Failed to read image for vision analysis:', readErr.message);
-      contentPayload = promptText;
-    }
-  }
-
-  let parsed = null;
-
-  try {
-    const result = await model.generateContent(contentPayload);
-    const rawText = result.response.text();
-    parsed = JSON.parse(cleanJsonResponseText(rawText));
-    if (!parsed || typeof parsed.ready_for_confirmation !== 'boolean') {
-      throw new Error('Response missing ready_for_confirmation boolean');
-    }
-    if (!parsed.extracted_values) parsed.extracted_values = {};
-    if (parsed.next_question === undefined) parsed.next_question = null;
-    parsed.location = parsed.location || null;
-    parsed.area = parsed.area || null;
-    parsed.location_confirmed = Boolean(parsed.location_confirmed);
-  } catch (err) {
-    console.warn('[AGENT FORM FILL] Attempt 1 failed:', err.message);
-    try {
-      const retryPrompt = `${promptText}\n\nATTENTION: Previous response failed. Return ONLY a valid JSON object with keys: extracted_values (object), next_question (string or null), ready_for_confirmation (boolean).`;
-      const retryResult = await model.generateContent(retryPrompt);
-      const rawRetry = retryResult.response.text();
-      parsed = JSON.parse(cleanJsonResponseText(rawRetry));
-      if (!parsed || typeof parsed.ready_for_confirmation !== 'boolean') {
-        throw new Error('Retry response still invalid');
+  return types
+    .filter((t) => !NOT_GENERIC.has(String(t.name).toLowerCase()))
+    .map((t) => {
+      const form = t.formMasters[0];
+      const params = form.sections.flatMap((s) => s.subsections.flatMap((ss) => ss.parameters));
+      const strong = new Set([...understanding.tokens(t.name), ...understanding.tokens(t.description)]);
+      const weak = new Set();
+      for (const s of form.sections) understanding.tokens(s.section_name).forEach((w) => weak.add(w));
+      for (const p of params) {
+        understanding.tokens(p.label).forEach((w) => weak.add(w));
+        optionsOf(p).forEach((o) => understanding.tokens(o).forEach((w) => weak.add(w)));
       }
-      if (!parsed.extracted_values) parsed.extracted_values = {};
-      if (parsed.next_question === undefined) parsed.next_question = null;
-    } catch (err2) {
-      console.error('[AGENT FORM FILL] Gemini extraction failed, using resilient conversational recovery:', err2.message);
-      // Resilient fallback: If the assistant previously asked for a required parameter,
-      // bind the citizen's response directly to that parameter instead of discarding it!
-      const cleanUserMsg = userMessage.replace(/\[(?:User )?location:[^\]]+\]/gi, '').trim();
-      const currentMissing = session.requiredParams.find(p => session.draft[p.parameter_id] === undefined);
-      const extracted_values = {};
-
-      if (currentMissing && cleanUserMsg) {
-        extracted_values[String(currentMissing.parameter_id)] = cleanUserMsg;
-      }
-
-      // Check remaining missing fields
-      const nextMissing = session.requiredParams.find(p =>
-        session.draft[p.parameter_id] === undefined && String(p.parameter_id) !== String(currentMissing?.parameter_id)
-      );
-
-      const deviceLoc = parseDeviceLocation(userMessage);
-      const detectedArea = (deviceLoc && deviceLoc.location) ? deviceLoc.location : (session.area || 'Pune');
-
-      let nextQ = null;
-      if (nextMissing) {
-        if (nextMissing.options && Array.isArray(nextMissing.options.choices || nextMissing.options)) {
-          const choices = (nextMissing.options.choices || nextMissing.options).join(', ');
-          nextQ = `Understood! What is the ${nextMissing.label}? (Options: ${choices})`;
-        } else {
-          nextQ = `Understood! What is the ${nextMissing.label}?`;
-        }
-      } else if (!session.locationConfirmed) {
-        nextQ = session.capability === 'Movement'
-          ? `At what area or location would you like to bring this initiative into action? (I noticed your location is ${detectedArea} — would you like to conduct it in ${detectedArea}, or somewhere else like FC Road, Kothrud, or Shivajinagar?)`
-          : `At what area or location did this happen? (I noticed your location is ${detectedArea} — did this happen in ${detectedArea}, or at another street/landmark?)`;
-      }
-
       return {
-        extracted_values,
-        location: null,
-        area: null,
-        location_confirmed: false,
-        next_question: nextQ,
-        ready_for_confirmation: !nextMissing && session.locationConfirmed,
+        id: t.entity_type_id,
+        name: t.name,
+        label: plainLabelOfService(t),
+        description: t.description || '',
+        keywords: { strong, weak },
+        params,
       };
-    }
-  }
-
-  return parsed;
+    });
 }
 
-// ── Confirmation summary builder ──────────────────────────────────────────────
-
-/**
- * Build a human-readable plain-text summary of the draft (uses labels, not IDs).
- * Includes both text parameters and attached evidence files.
- * @param {AgentSession} session
- * @returns {Array<{label:string, value:string, mandatory:boolean, isFile?:boolean}>}
- */
-function buildConfirmationSummary(session) {
-  const lines = [];
-  for (const param of session.allTextParams) {
-    const val = session.draft[param.parameter_id];
-    if (val !== undefined && val !== null && val !== '') {
-      lines.push({ label: param.label, value: val, mandatory: param.mandatory, isFile: false });
-    }
-  }
-  // Prominently display incident location in the review summary table
-  if (session.location) {
-    lines.push({ label: 'Location / Landmark', value: session.location, mandatory: true, isFile: false });
-  } else if (session.area) {
-    lines.push({ label: 'Area / Neighborhood', value: session.area, mandatory: true, isFile: false });
-  }
-
-  for (const pf of (session.pendingFiles || [])) {
-    lines.push({ label: pf.label || 'Attached File', value: `📎 ${pf.originalName}`, mandatory: false, isFile: true });
-  }
-  return lines;
+function optionsOf(param) {
+  const o = param.options;
+  if (Array.isArray(o)) return o.map(String);
+  if (o && Array.isArray(o.choices)) return o.choices.map(String);
+  return [];
 }
 
-// ── Submission ────────────────────────────────────────────────────────────────
+function fieldType(param) {
+  const t = String(param.field_type || param.control_type || 'text').toLowerCase();
+  if (FILE_FIELD_TYPES.has(t)) return 'file';
+  if (['select', 'dropdown', 'radio'].includes(t)) return 'choice';
+  if (['number', 'integer', 'decimal', 'currency'].includes(t)) return 'number';
+  if (t === 'date' || t === 'datepicker') return 'date';
+  if (t === 'email') return 'email';
+  if (t === 'phone' || t === 'tel') return 'phone';
+  if (t === 'location') return 'location';
+  return t === 'textarea' ? 'longtext' : 'text';
+}
+
+/** Words in a field label that are jargon to a citizen: the service's own name. */
+function plainFieldLabel(label, serviceName) {
+  const drop = new Set(understanding.tokens(serviceName));
+  const words = String(label || '').split(/\s+/).filter((w) => !drop.has(understanding.tokens(w)[0] || ''));
+  return (words.join(' ') || String(label || '')).replace(/\s*\/\s*/g, ' or ').trim().toLowerCase();
+}
+
+const TITLE_KEY = /^(title|name|subject|summary)$/i;
+const PERSON_NAME = /(reporter|applicant|complainant|your|full|citizen).*name|^name$/i;
+
+function describeService(svc) {
+  const fields = [];
+  const fileFields = [];
+  for (const p of [...svc.params].sort((a, b) => (a.display_order - b.display_order) || (a.parameter_id - b.parameter_id))) {
+    const type = fieldType(p);
+    const base = {
+      key: p.field_key || `field_${p.parameter_id}`,
+      parameterId: p.parameter_id,
+      label: p.label || p.field_key,
+      plain: plainFieldLabel(p.label || p.field_key, svc.name),
+      type,
+      mandatory: Boolean(p.mandatory),
+      options: optionsOf(p),
+      rule: String(p.validation_rule || ''),
+      dependsOn: p.options && p.options.depends_on ? p.options.depends_on : null,
+      defaultValue: p.options && p.options.default !== undefined ? String(p.options.default) : null,
+    };
+    if (type === 'file') fileFields.push(base);
+    else if (type !== 'location' && !TITLE_KEY.test(base.key)) fields.push(base);
+  }
+  return { id: svc.id, name: svc.name, label: svc.label, fields, fileFields };
+}
+
+/** Wards: the most specific active areas. A record must sit on one of these. */
+async function loadWards() {
+  const all = await prisma.jurisdictionMaster.findMany({
+    where: { status: 'active' },
+    select: { jurisdiction_id: true, name: true, parent_id: true },
+    take: 5000,
+  });
+  const parents = new Set(all.map((j) => j.parent_id).filter(Boolean));
+  return all.filter((j) => !parents.has(j.jurisdiction_id)).map((j) => ({ id: j.jurisdiction_id, name: j.name }));
+}
+
+// ── Validation (the only way a value gets into the draft) ────────────────────
+
+function parseDate(text) {
+  const n = understanding.normalize(text);
+  const today = new Date();
+  const iso = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  if (/\btoday\b|\bjust now\b|\bthis morning\b/.test(n)) return iso(today);
+  if (/\byesterday\b|\blast night\b/.test(n)) return iso(new Date(today.getTime() - 86400000));
+  const ago = n.match(/(\d{1,3})\s+days?\s+ago/);
+  if (ago) return iso(new Date(today.getTime() - Number(ago[1]) * 86400000));
+  let m = String(text).match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = String(text).match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const parsed = Date.parse(text);
+  return Number.isNaN(parsed) ? null : iso(new Date(parsed));
+}
 
 /**
- * Submit the draft entity to the existing POST /entities and POST /entities/:id/values endpoints.
- * Also registers any uploaded files in FileRepository and ParameterValue (same as POST /files/upload).
- * Calls POST /entities/:id/transition to move draft → submitted.
- * Writes an AuditLog entry using the existing Prisma schema.
- *
- * @param {AgentSession} session
- * @param {string} sessionId
- * @returns {Promise<{entity_id:number, name:string, status:string, files?:Array<string>}>}
+ * Check one value against its field's metadata.
+ * @returns {{ ok: true, value: string } | { ok: false, why: string }}
  */
-async function submitDraft(session, sessionId) {
-  const name = synthesizeEntityName(session.capability, session.draft, session.allTextParams, '', session.location);
+function validateValue(field, raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return { ok: false, why: 'I need an answer for that.' };
 
-  // Build location/area from draft if available
-  const paramByKey = {};
-  for (const p of session.allTextParams) {
-    paramByKey[p.field_key] = session.draft[p.parameter_id];
+  if (field.type === 'choice') {
+    const picked = understanding.findOption(text, field.options);
+    return picked ? { ok: true, value: picked } : { ok: false, why: `Please pick one of: ${listOf(field.options)}.` };
   }
-  const location = paramByKey['location'] || paramByKey['area'] || null;
-  const area = paramByKey['area'] || paramByKey['category'] || null;
-
-  // 1. Create the entity (draft status, same as manual form)
-  const finalLocation = session.location ? String(session.location).trim() : (location ? String(location).trim() : null);
-  const finalArea = session.area ? String(session.area).trim() : (area ? String(area).trim() : null);
-  const entity = await prisma.entity.create({
-    data: {
-      entity_type_id: session.entityTypeId,
-      owner_user_id: session.userId,
-      name: name.trim(),
-      location: finalLocation,
-      area: finalArea,
-      latitude: session.latitude != null ? session.latitude : null,
-      longitude: session.longitude != null ? session.longitude : null,
-      status: 'draft',
-    },
-    include: {
-      entityType: { select: { entity_type_id: true, name: true } },
-    },
-  });
-
-  const entityId = entity.entity_id;
-
-  // 2. Save parameter values (batch — same as POST /entities/:id/values)
-  const valuesToInsert = session.allTextParams
-    .filter(p => session.draft[p.parameter_id] !== undefined && session.draft[p.parameter_id] !== null)
-    .map(p => ({
-      entity_id: entityId,
-      parameter_id: p.parameter_id,
-      value: String(session.draft[p.parameter_id]).trim(),
-    }));
-
-  if (valuesToInsert.length > 0) {
-    await prisma.$transaction(
-      valuesToInsert.map(v => prisma.parameterValue.create({ data: v }))
-    );
+  if (field.type === 'number') {
+    const num = Number(text.replace(/[, ]/g, '').match(/-?\d+(\.\d+)?/)?.[0]);
+    if (!Number.isFinite(num)) return { ok: false, why: 'I need a number for that.' };
+    return { ok: true, value: String(num) };
   }
-
-  // 3. Save pending file attachments to FileRepository & ParameterValue (same as POST /files/upload)
-  if (Array.isArray(session.pendingFiles) && session.pendingFiles.length > 0) {
-    for (const f of session.pendingFiles) {
-      await prisma.fileRepository.create({
-        data: {
-          entity_id: entityId,
-          parameter_id: f.parameter_id,
-          file_name: f.originalName,
-          path: f.storedName,
-        },
-      });
-
-      await prisma.parameterValue.create({
-        data: {
-          entity_id: entityId,
-          parameter_id: f.parameter_id,
-          value: f.originalName,
-        },
-      });
-    }
+  if (field.type === 'date') {
+    const d = parseDate(text);
+    if (!d) return { ok: false, why: 'I could not read that as a date. Try "today", "yesterday" or a date like 12/11/2026.' };
+    return { ok: true, value: d };
   }
+  if (field.type === 'email') {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text) ? { ok: true, value: text } : { ok: false, why: 'That does not look like an email address.' };
+  }
+  if (field.type === 'phone') {
+    const digits = text.replace(/\D/g, '');
+    return digits.length >= 7 && digits.length <= 15 ? { ok: true, value: text } : { ok: false, why: 'That does not look like a phone number.' };
+  }
+  const min = Number(field.rule.match(/min:(\d+)/)?.[1] || 0);
+  const max = Number(field.rule.match(/max:(\d+)/)?.[1] || 4000);
+  if (text.length < min) return { ok: false, why: 'Could you say a little more? A sentence or two is enough.' };
+  if (text.length > max) return { ok: false, why: 'That is a bit long. Could you shorten it?' };
+  return { ok: true, value: text };
+}
 
-  // 4. Transition: draft → submitted (same as POST /entities/:id/transition)
-  await prisma.entity.update({
-    where: { entity_id: entityId },
-    data: { status: 'submitted' },
-  });
+function isActive(field, draft, fields) {
+  if (!field.dependsOn) return true;
+  const other = fields.find((f) => f.key === field.dependsOn.field_key);
+  return other ? String(draft[other.key] ?? other.defaultValue ?? '') === String(field.dependsOn.value) : true;
+}
 
-  // 5. Write AuditLog — same schema as existing audit entries, source tagged in reason
-  await prisma.auditLog.create({
-    data: {
-      entity_id: entityId,
-      actor_user_id: session.userId,
-      action: 'submitted',
-      user: `user_id:${session.userId}`,
-      old_status: 'draft',
-      new_status: 'submitted',
-      reason: `Agent-initiated submission via Conversational Agent (session: ${sessionId})`,
-    },
-  });
+/** What still has to be asked, in form order. A ward is always needed. */
+function missing(session) {
+  const { fields } = session.service;
+  const out = fields.filter((f) => f.mandatory && isActive(f, session.draft, fields) && session.draft[f.key] === undefined);
+  return { fields: out, ward: !session.ward };
+}
 
+// ── Plain-language wording ───────────────────────────────────────────────────
+
+function listOf(items) {
+  const a = items.map(String);
+  if (a.length <= 1) return a.join('');
+  return `${a.slice(0, -1).join(', ')} or ${a[a.length - 1]}`;
+}
+
+function questionFor(field) {
+  if (field.type === 'choice') return `Which ${field.plain} fits best: ${listOf(field.options)}?`;
+  if (field.type === 'date') return `What is the ${field.plain}? You can say "today", "yesterday" or give a date.`;
+  if (field.type === 'number') return `What is the ${field.plain}? A number is fine.`;
+  if (field.type === 'longtext') return `Can you tell me about the ${field.plain}? A sentence or two is enough.`;
+  return `What is the ${field.plain}?`;
+}
+
+function wardQuestion(wards) {
+  if (!wards.length) return 'Which area is this in?';
+  return wards.length <= 8
+    ? `Which area is this in: ${listOf(wards.map((w) => w.name))}?`
+    : 'Which area or ward is this in?';
+}
+
+const STATUS_WORDS = {
+  draft: 'saved, not sent yet',
+  submitted: 'received, waiting for review',
+  coordinator_approved: 'checked, waiting for final approval',
+  approved: 'approved',
+  rejected: 'not accepted',
+};
+const plainStatus = (s) => STATUS_WORDS[String(s || '').toLowerCase()] || String(s || 'in progress').replace(/_/g, ' ');
+const reference = (id) => `PR-${String(id).padStart(5, '0')}`;
+
+function titleFrom(session) {
+  const long = session.service.fields.find((f) => f.type === 'longtext' && session.draft[f.key]);
+  const source = (long ? session.draft[long.key] : session.said[0]) || session.service.label;
+  let t = String(source).replace(/\[.*?\]/g, '').split(/[.!?\n]/)[0].trim();
+  t = t.replace(/^(hi|hello|hey)[,!. ]+/i, '').replace(/^(there'?s|there is|there are|i have|i want to report|i'd like to report)\s+(an?\s+|the\s+|some\s+)?/i, '');
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  return t.length > 80 ? `${t.slice(0, 77).trim()}…` : t || session.service.label;
+}
+
+function summaryOf(session) {
+  const rows = [{ label: 'What', value: titleFrom(session) }];
+  rows.push({ label: 'Where', value: [session.ward?.name, session.place].filter(Boolean).join(', ') });
+  for (const f of session.service.fields) {
+    if (session.draft[f.key] === undefined) continue;
+    const label = PERSON_NAME.test(f.key) || PERSON_NAME.test(f.label) ? 'Your name' : f.plain.charAt(0).toUpperCase() + f.plain.slice(1);
+    rows.push({ label, value: String(session.draft[f.key]) });
+  }
+  if (session.pendingFiles.length) rows.push({ label: 'Attached', value: session.pendingFiles.map((f) => f.originalName).join(', ') });
+  return rows;
+}
+
+function confirmReply(session, lead = 'Here is what I will send:') {
+  const summary = summaryOf(session);
+  session.phase = 'confirming';
+  session.asked = null;
+  const lines = summary.map((r) => `**${r.label}:** ${r.value}`).join('\n');
   return {
-    entity_id: entityId,
-    name: entity.name,
-    status: 'submitted',
-    entity_type: entity.entityType?.name || session.capability,
-    files: (session.pendingFiles || []).map(f => f.originalName),
+    type: 'confirm',
+    text: `${lead}\n\n${lines}\n\nShall I send it? Say **yes**, or tell me what to change.`,
+    summary,
+    ready: true,
   };
 }
 
-// ── Affirmative reply detection ───────────────────────────────────────────────
+// ── Attachments ──────────────────────────────────────────────────────────────
 
-const AFFIRMATIVE_SIGNALS = [
-  'yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay', 'confirm', 'submit',
-  'go ahead', 'proceed', 'do it', 'please submit', 'yes please', 'absolutely',
-  'correct', 'that is correct', "that's right", 'affirmative', 'approved', 'agree',
-  'looks good', 'looks correct', 'submit it',
-];
-
-function isAffirmativeReply(message) {
-  const normalized = String(message || '').toLowerCase().trim();
-  return AFFIRMATIVE_SIGNALS.some(sig => normalized.includes(sig));
+function matchFileToParameter(fileParams, attachedFile) {
+  if (!Array.isArray(fileParams) || fileParams.length === 0 || !attachedFile) return null;
+  const isImage = attachedFile.mimeType && attachedFile.mimeType.startsWith('image/');
+  const re = isImage ? /photo|image|evidence|picture|pic/i : /doc|document|supporting|proof|file|attachment/i;
+  return fileParams.find((p) => re.test(p.field_key || p.key || '') || re.test(p.label || '')) || fileParams[0];
 }
 
-// ── Clarification / guidance responses ───────────────────────────────────────
+function parseDeviceLocation(message) {
+  const m = String(message || '').match(/\[(?:User )?location:\s*([^()\]]+?)(?:\s*\(([0-9.-]+)[°]?[NS]?,\s*([0-9.-]+)[°]?[EW]?\))?\]/i);
+  if (!m) return null;
+  return { text: m[1].trim(), latitude: m[2] ? parseFloat(m[2]) : null, longitude: m[3] ? parseFloat(m[3]) : null };
+}
 
-const GUIDANCE_RESPONSE = `I can help you with the following right now:
-
-1. **Report a civic problem** — garbage, road damage, water supply, noise, or any public issue
-   → Just tell me what the problem is and where it is, or attach a photo/document!
-
-2. **Start a civic initiative** — community cleanup, awareness campaign, or neighborhood project
-   → Tell me about your initiative idea.
-
-3. **Check your request status** — find out what's happening with your previous submissions
-   → Just say "what is the status of my requests" or "check my submissions".
-
-What would you like to do?`;
-
-// Not an AI answer: a fixed message shown when the AI cannot be reached.
-const AI_UNAVAILABLE_RESPONSE = `**The AI assistant is unavailable right now**, so I can't read free-text requests. This is an automatic message, not an AI answer.
-
-You can still do everything with the manual form:
-
-1. Open **Initiatives** in the menu and choose **Start a Civic Initiative**, or go to /entities/new
-2. Pick what you want to do, fill in the fields and submit
-
-Your existing requests are listed under **My Activity**.`;
-
-const UNCLEAR_RESPONSE = `I'm not sure I understood that. Here's what I can help you with:
-
-1. **Report a civic problem** (garbage, road issues, water supply, safety concerns — photos welcome!)
-2. **Start a civic initiative** (community project, campaign, awareness drive)
-3. **Check status of your previous requests**
-
-Could you rephrase, or choose one of the above?`;
-
-// ── Main exported function ────────────────────────────────────────────────────
+// ── Filing: the only place a record is created ───────────────────────────────
 
 /**
- * Process one turn of the citizen conversation.
- *
- * @param {string}  sessionId
- * @param {string}  userMessage
- * @param {Object}  user                 - { user_id, role } from JWT (req.user)
- * @param {Array}   priorIntentHistory   - conversationHistory from client for brand new sessions
- * @param {Object}  [attachedFile]       - { diskPath, storedName, originalName, mimeType, size }
- * @returns {Promise<{type:string, text:string, summary?:Array, entity_id?:number, ready?:boolean}>}
+ * Create the record and start its workflow, as the citizen.
+ * Preconditions are re-checked here, whatever the conversation believed.
  */
-async function continueFormFilling(sessionId, userMessage, user, priorIntentHistory = [], attachedFile = null) {
-  const session = getSession(sessionId, user.user_id, user.role);
+async function fileRequest(session, user, sessionId) {
+  const svc = session.service;
 
-  // Record user's turn in conversation history
-  const historyContent = attachedFile
-    ? `${userMessage} [Uploaded: ${attachedFile.originalName}]`
-    : userMessage;
-  session.conversationHistory.push({ role: 'user', content: historyContent });
+  // 1. The service must still be one this person may start.
+  const catalog = await loadServiceCatalog(user.role);
+  if (!catalog.some((s) => s.id === svc.id)) {
+    throw Object.assign(new Error('That service is not available to you.'), { statusCode: 403 });
+  }
+  // 2. Every required detail must be present and valid; a ward must be set.
+  const gaps = missing(session);
+  if (gaps.fields.length || gaps.ward) throw Object.assign(new Error('Some required details are missing.'), { statusCode: 400 });
+  for (const f of svc.fields) {
+    if (session.draft[f.key] === undefined) continue;
+    if (!validateValue(f, session.draft[f.key]).ok) throw Object.assign(new Error('A detail is not valid.'), { statusCode: 400 });
+  }
+  const ward = await prisma.jurisdictionMaster.findFirst({ where: { jurisdiction_id: session.ward.id, status: 'active' } });
+  if (!ward) throw Object.assign(new Error('That area is not available.'), { statusCode: 400 });
 
-  // ── Phase: INTENT ────────────────────────────────────────────────────────────
-  if (session.phase === 'intent') {
-    const intent = attachedFile
-      ? await routeIntent(userMessage, priorIntentHistory, attachedFile)
-      : await routeIntent(userMessage, priorIntentHistory);
+  // 3. The workflow must let this person send their own draft.
+  const firstStatus = await firstWorkflowStatus(prisma, svc.id);
+  const allowed = await validateWorkflowTransition({
+    entity: { entity_type_id: svc.id, owner_user_id: user.user_id, area: ward.name, status: 'draft' },
+    targetStatus: firstStatus,
+    actorRole: user.role,
+    actorUserId: user.user_id,
+    actorAssignedArea: user.assignedArea || null,
+  });
+  if (!allowed.allowed) throw Object.assign(new Error('You are not allowed to send this.'), { statusCode: 403 });
 
-    // STATUS CHECK
-    if (intent.action_type === 'status_check') {
-      const submissions = await prisma.entity.findMany({
-        where: { owner_user_id: user.user_id },
-        orderBy: { entity_id: 'desc' },
-        take: 5,
-        include: { entityType: { select: { name: true } } },
-      });
-
-      session.phase = 'done';
-
-      if (submissions.length === 0) {
-        const reply = "You haven't made any submissions yet. You can report a civic problem or start an initiative — just tell me what you'd like to do!";
-        session.conversationHistory.push({ role: 'agent', content: reply });
-        return { type: 'status', text: reply };
-      }
-
-      const statusLabels = {
-        draft: 'Draft (not submitted)',
-        submitted: 'Submitted — awaiting coordinator review',
-        coordinator_approved: 'Coordinator verified — awaiting Director approval',
-        approved: 'Approved ✓',
-        rejected: 'Rejected',
-        deleted: 'Deleted',
-      };
-
-      const lines = submissions.map(e => {
-        const label = statusLabels[e.status] || e.status;
-        const typeName = e.entityType?.name || 'Request';
-        return `• **${typeName} #${e.entity_id}** — "${e.name}"  \n  Status: ${label}`;
-      });
-
-      const reply = `Here are your recent submissions:\n\n${lines.join('\n\n')}`;
-      session.conversationHistory.push({ role: 'agent', content: reply });
-      return { type: 'status', text: reply };
+  // 4. Save the draft with its details in one transaction…
+  const entity = await prisma.$transaction(async (tx) => {
+    const created = await tx.entity.create({
+      data: {
+        entity_type_id: svc.id,
+        owner_user_id: user.user_id,
+        jurisdiction_id: ward.jurisdiction_id,
+        name: titleFrom(session),
+        area: ward.name,
+        location: session.place || null,
+        latitude: session.coords?.latitude ?? null,
+        longitude: session.coords?.longitude ?? null,
+        status: 'draft',
+      },
+    });
+    for (const f of svc.fields) {
+      if (session.draft[f.key] === undefined) continue;
+      await tx.parameterValue.create({ data: { entity_id: created.entity_id, parameter_id: f.parameterId, value: String(session.draft[f.key]) } });
     }
-
-    // GUIDANCE
-    if (intent.action_type === 'guidance') {
-      session.phase = 'done'; // reset to allow new intent next turn
-      session.conversationHistory.push({ role: 'agent', content: GUIDANCE_RESPONSE });
-      return { type: 'guidance', text: GUIDANCE_RESPONSE };
+    for (const file of session.pendingFiles) {
+      await tx.fileRepository.create({ data: { entity_id: created.entity_id, parameter_id: file.parameter_id, file_name: file.originalName, path: file.storedName } });
+      await tx.parameterValue.create({ data: { entity_id: created.entity_id, parameter_id: file.parameter_id, value: file.originalName } });
     }
+    await tx.auditLog.create({
+      data: {
+        entity_id: created.entity_id,
+        actor_user_id: user.user_id,
+        action: 'created',
+        user: user.name || `user ${user.user_id}`,
+        reason: 'Filed through the civic assistant after the citizen confirmed the summary',
+      },
+    });
+    return created;
+  }, { maxWait: 10000, timeout: 20000 });
 
-    // UNCLEAR / LOW CONFIDENCE
-    if (intent.ai_unavailable) {
-      session.phase = 'done';
-      session.conversationHistory.push({ role: 'agent', content: AI_UNAVAILABLE_RESPONSE });
-      return { type: 'ai_unavailable', text: AI_UNAVAILABLE_RESPONSE };
-    }
-    if (intent.action_type === 'unclear' || intent.confidence === 'low') {
-      session.phase = 'done';
-      session.conversationHistory.push({ role: 'agent', content: UNCLEAR_RESPONSE });
-      return { type: 'unclear', text: UNCLEAR_RESPONSE };
-    }
+  // 5. …then send it through the workflow engine, like any other record
+  //    (permission check, status change, audit, approval history, rules).
+  try {
+    await executeWorkflowTransition({
+      entityId: entity.entity_id,
+      toStatus: firstStatus,
+      reason: 'Sent by the citizen through the civic assistant',
+      user: { user_id: user.user_id, name: user.name || `user ${user.user_id}`, role: user.role },
+    });
+  } catch (err) {
+    // Nothing half-filed is left behind.
+    await prisma.$transaction([
+      prisma.fileRepository.deleteMany({ where: { entity_id: entity.entity_id } }),
+      prisma.parameterValue.deleteMany({ where: { entity_id: entity.entity_id } }),
+      prisma.approvalHistory.deleteMany({ where: { entity_id: entity.entity_id } }),
+      prisma.auditLog.deleteMany({ where: { entity_id: entity.entity_id } }),
+      prisma.entity.delete({ where: { entity_id: entity.entity_id } }),
+    ]).catch(() => {});
+    throw err;
+  }
 
-    // REPORT / INITIATE — start form-filling
-    const capability = intent.matched_capability; // 'Grievance' | 'Movement'
-    const entityTypeId = await resolveEntityTypeId(capability);
+  // Who looks at it next, from the workflow.
+  const next = await prisma.workflowMaster.findMany({ where: { entity_type_id: svc.id, trigger: firstStatus }, select: { stage: true } });
+  const stages = new Set(next.map((n) => n.stage));
+  let who = 'A reviewer';
+  if (stages.has('coordinator_area')) who = `The ${ward.name} area coordinator`;
+  else if (stages.has('coordinator_general')) who = 'A coordinator';
+  else if (stages.has('director')) who = 'The director';
 
-    if (!entityTypeId) {
-      const errMsg = `Sorry, the ${capability} module is not currently configured. Please use the manual form or contact support.`;
-      session.phase = 'done';
-      session.conversationHistory.push({ role: 'agent', content: errMsg });
-      return { type: 'error', text: errMsg };
-    }
+  void sessionId;
+  return { entity, firstStatus, who };
+}
 
-    const formSchema = await loadFormSchemaForEntityType(entityTypeId);
-    if (!formSchema) {
-      const errMsg = `Sorry, the ${capability} form is not configured. Please use the manual form or contact support.`;
-      session.phase = 'done';
-      session.conversationHistory.push({ role: 'agent', content: errMsg });
-      return { type: 'error', text: errMsg };
-    }
+// ── The conversation ─────────────────────────────────────────────────────────
 
-    const { required, allText, fileParams } = extractParameters(formSchema);
+const OPENING = 'Tell me what is going on, in your own words. I can also check on requests you have already sent.';
 
-    session.capability = capability;
-    session.entityTypeId = entityTypeId;
-    session.formId = formSchema.form_id;
-    session.formSchema = formSchema;
-    session.requiredParams = required;
-    session.allTextParams = allText;
-    session.fileParams = fileParams || [];
-    session.pendingFiles = session.pendingFiles || [];
-    session.draft = {};
+function useAi(session) {
+  // After an AI failure, do not wait on it again for a minute.
+  return Date.now() - session.lastAiFailure > 60000;
+}
+function noteAi(session, result) {
+  if (result.aiUnavailable) session.lastAiFailure = Date.now();
+}
+
+async function statusReply(user) {
+  const mine = await prisma.entity.findMany({
+    where: { owner_user_id: user.user_id, status: { not: 'deleted' } },
+    orderBy: { entity_id: 'desc' },
+    take: 5,
+    select: { entity_id: true, name: true, status: true },
+  });
+  if (!mine.length) return { type: 'status', text: 'You have not sent anything yet. Tell me what is going on and I will file it for you.' };
+  const lines = mine.map((e) => `**${reference(e.entity_id)}** ${e.name}: ${plainStatus(e.status)}`).join('\n');
+  return { type: 'status', text: `Here are your latest requests:\n\n${lines}\n\nYou can open any of them under My requests.` };
+}
+
+/** Put validated values into the draft; return what was accepted and what was refused. */
+function absorb(session, values) {
+  const accepted = [];
+  const refused = [];
+  for (const [key, raw] of Object.entries(values || {})) {
+    const field = session.service.fields.find((f) => f.key === key);
+    if (!field) continue; // not a real field of this service: ignored
+    const check = validateValue(field, raw);
+    if (check.ok) {
+      if (session.draft[key] !== check.value) accepted.push(field);
+      session.draft[key] = check.value;
+    } else refused.push({ field, why: check.why });
+  }
+  return { accepted, refused };
+}
+
+/** Ask the next thing that is missing, or move to confirmation. */
+function nextStep(session, wards, lead = '') {
+  const gaps = missing(session);
+  const say = (text) => (lead ? `${lead} ${text}` : text);
+  if (gaps.fields.length) {
+    const f = gaps.fields[0];
     session.phase = 'collecting';
+    session.asked = f.key;
+    return { type: 'question', text: say(questionFor(f)) };
+  }
+  if (gaps.ward) {
+    session.phase = 'collecting';
+    session.asked = '__ward';
+    return { type: 'question', text: say(wardQuestion(wards)) };
+  }
+  return confirmReply(session, lead ? `${lead} Here is what I will send:` : 'Here is what I will send:');
+}
 
-    // If an attachment accompanied this initial turn, associate it with a file parameter
-    if (attachedFile) {
-      const matched = matchFileToParameter(session.fileParams, attachedFile);
-      if (matched) {
-        session.pendingFiles.push({
-          parameter_id: matched.parameter_id,
-          label: matched.label,
-          field_key: matched.field_key,
-          diskPath: attachedFile.diskPath,
-          storedName: attachedFile.storedName,
-          originalName: attachedFile.originalName,
-          mimeType: attachedFile.mimeType,
-          size: attachedFile.size,
-        });
-        session.draft[matched.parameter_id] = attachedFile.originalName;
-      }
-    }
+async function startService(session, svc, user, wards, firstMessage) {
+  session.service = describeService(svc);
+  session.choices = [];
+  session.phase = 'collecting';
 
-    // Immediately try to extract values from the first message + attachment
-    const deviceLoc = parseDeviceLocation(userMessage);
-    const fillResult = await extractFormValues(session, userMessage, attachedFile);
+  // What is already known without asking.
+  const dbUser = await prisma.user.findUnique({ where: { user_id: user.user_id }, select: { name: true } }).catch(() => null);
+  for (const f of session.service.fields) {
+    if ((PERSON_NAME.test(f.key) || PERSON_NAME.test(f.label)) && dbUser?.name) session.draft[f.key] = dbUser.name;
+  }
+  // The citizen's own words are the description, if they say enough.
+  const story = session.service.fields.find((f) => f.type === 'longtext' && f.mandatory);
+  const words = String(firstMessage || '').replace(/\[.*?\]/g, '').trim();
+  if (story && validateValue(story, words).ok && understanding.tokens(words).length >= 2) session.draft[story.key] = words;
 
-    // Merge extracted values into draft
-    for (const [paramIdStr, value] of Object.entries(fillResult.extracted_values || {})) {
-      const paramId = parseInt(paramIdStr, 10);
-      if (!isNaN(paramId) && value !== null && value !== '') {
-        session.draft[paramId] = value;
-      }
-    }
+  const read = await understanding.readDetails({
+    message: firstMessage, fields: session.service.fields, wards, askedKey: null, history: [], phase: 'collect', useAi: useAi(session),
+  });
+  noteAi(session, read);
+  // The opening message is the description itself; do not let it fill other long answers.
+  const values = Object.fromEntries(Object.entries(read.values).filter(([k]) => {
+    const f = session.service.fields.find((x) => x.key === k);
+    return f && (f.type !== 'longtext' || k === story?.key);
+  }));
+  absorb(session, values);
+  if (read.ward) session.ward = read.ward;
+  if (read.place) session.place = read.place;
+  return nextStep(session, wards, 'Got it.');
+}
 
-    // Check if citizen explicitly specified or confirmed location in their text
-    const isExplicitLocation = hasExplicitLocationInText(userMessage) || Boolean(fillResult.location_confirmed);
-
-    if (isExplicitLocation) {
-      session.locationConfirmed = true;
-      const resolvedLoc = resolveLocationAndCoords(fillResult.location, fillResult.area, deviceLoc);
-      if (resolvedLoc.location) {
-        session.location = resolvedLoc.location;
-        session.area = resolvedLoc.area;
-        if (resolvedLoc.latitude != null) session.latitude = resolvedLoc.latitude;
-        if (resolvedLoc.longitude != null) session.longitude = resolvedLoc.longitude;
-      }
-    } else if (deviceLoc) {
-      // Remember detected device area as candidate, but NOT confirmed until citizen says so!
-      session.area = deviceLoc.area;
-      if (!session.location) session.location = deviceLoc.location;
-      if (deviceLoc.latitude != null) session.latitude = deviceLoc.latitude;
-      if (deviceLoc.longitude != null) session.longitude = deviceLoc.longitude;
-    }
-
-    // If location is NOT yet confirmed by citizen, ask them for the area/location!
-    if (!session.locationConfirmed && deviceLoc) {
-      const detectedArea = deviceLoc.area || deviceLoc.location || 'Pune';
-      const locQ = capability === 'Movement'
-        ? `At what area or location would you like to bring this initiative into action? (I noticed your location is ${detectedArea} — would you like to conduct it in ${detectedArea}, or somewhere else like FC Road, Kothrud, or Shivajinagar?)`
-        : `At what area or location did this happen? (I noticed your location is ${detectedArea} — did this happen in ${detectedArea}, or at another street/landmark?)`;
-
-      const questionText = (fillResult.next_question && (fillResult.next_question.toLowerCase().includes('location') || fillResult.next_question.toLowerCase().includes('area') || fillResult.next_question.toLowerCase().includes('where')))
-        ? fillResult.next_question
-        : locQ;
-
-      session.conversationHistory.push({ role: 'agent', content: questionText });
-      return { type: 'question', text: questionText, capability, form_id: formSchema.form_id };
-    }
-
-    if (fillResult.ready_for_confirmation) {
-      session.phase = 'confirming';
-      const summary = buildConfirmationSummary(session);
-      const confirmText = buildConfirmText(session, summary);
-      session.conversationHistory.push({ role: 'agent', content: confirmText });
-      return { type: 'confirm', text: confirmText, summary, ready: true };
-    }
-
-    const nextQ = fillResult.next_question || `Got it! Let me help you file a ${capability}. ${session.requiredParams.length > 0 ? `I'll need a few details. ${session.requiredParams[0].label}?` : 'Could you provide more details?'}`;
-    session.conversationHistory.push({ role: 'agent', content: nextQ });
-    return { type: 'question', text: nextQ, capability, form_id: formSchema.form_id };
+/**
+ * One turn of the conversation.
+ * @param {string} sessionId
+ * @param {string} userMessage
+ * @param {{ user_id:number, role:string, name?:string, assignedArea?:string }} user
+ * @param {Array} _unused  kept for the route's call signature
+ * @param {object|null} attachedFile
+ */
+async function continueFormFilling(sessionId, userMessage, user, _unused = [], attachedFile = null) {
+  let session = getSession(sessionId, user.user_id, user.role);
+  if (session.phase === 'done') {
+    clearSession(sessionId);
+    session = getSession(sessionId, user.user_id, user.role);
   }
 
-  // ── Phase: COLLECTING ────────────────────────────────────────────────────────
-  if (session.phase === 'collecting') {
-    // If a file was attached in this collecting turn, match and attach it
-    if (attachedFile) {
-      const matched = matchFileToParameter(session.fileParams, attachedFile);
-      if (matched) {
-        session.pendingFiles.push({
-          parameter_id: matched.parameter_id,
-          label: matched.label,
-          field_key: matched.field_key,
-          diskPath: attachedFile.diskPath,
-          storedName: attachedFile.storedName,
-          originalName: attachedFile.originalName,
-          mimeType: attachedFile.mimeType,
-          size: attachedFile.size,
-        });
-        session.draft[matched.parameter_id] = attachedFile.originalName;
+  const device = parseDeviceLocation(userMessage);
+  if (device && device.latitude !== null) session.coords = { latitude: device.latitude, longitude: device.longitude };
+  const message = String(userMessage || '').replace(/\[(?:User )?location:[^\]]*\]/gi, '').trim();
+  const onlyAttachment = Boolean(attachedFile) && /^i have uploaded an attachment/i.test(message);
+
+  const [catalog, wards] = await Promise.all([loadServiceCatalog(user.role), loadWards()]);
+  if (!catalog.length) {
+    return { type: 'guidance', text: 'There is nothing you can file from here with your account. You can still browse records from the menu.' };
+  }
+  if (message && !onlyAttachment) session.said.push(message);
+
+  // ── An attachment is kept until the request is sent ───────────────────────
+  let attachedNote = '';
+  if (attachedFile) {
+    if (session.service) {
+      const param = matchFileToParameter(session.service.fileFields, attachedFile);
+      if (param) {
+        session.pendingFiles.push({ ...attachedFile, parameter_id: param.parameterId });
+        attachedNote = 'I have attached your file.';
+      } else {
+        if (attachedFile.diskPath) fs.unlink(attachedFile.diskPath, () => {});
+        attachedNote = 'This kind of request cannot take attachments, so I left the file out.';
       }
+    } else {
+      session.heldFile = attachedFile;
     }
-
-    const deviceLoc = parseDeviceLocation(userMessage);
-    const fillResult = await extractFormValues(session, userMessage, attachedFile);
-
-    // Merge extracted values
-    for (const [paramIdStr, value] of Object.entries(fillResult.extracted_values || {})) {
-      const paramId = parseInt(paramIdStr, 10);
-      if (!isNaN(paramId) && value !== null && value !== '') {
-        session.draft[paramId] = value;
-      }
-    }
-
-    // Check if citizen explicitly specified or confirmed location
-    const isExplicitLocation = hasExplicitLocationInText(userMessage) || Boolean(fillResult.location_confirmed);
-
-    if (isExplicitLocation) {
-      session.locationConfirmed = true;
-      const resolvedLoc = resolveLocationAndCoords(fillResult.location, fillResult.area, deviceLoc);
-      if (resolvedLoc.location) {
-        session.location = resolvedLoc.location;
-        session.area = resolvedLoc.area;
-        if (resolvedLoc.latitude != null) session.latitude = resolvedLoc.latitude;
-        if (resolvedLoc.longitude != null) session.longitude = resolvedLoc.longitude;
-      }
-    }
-
-    // Double-check all required fields are actually filled in draft
-    const stillMissing = session.requiredParams.filter(p => !session.draft[p.parameter_id]);
-    const actuallyReady = stillMissing.length === 0;
-
-    // If form fields are ready but citizen has not confirmed location, ask for location!
-    if (actuallyReady && !session.locationConfirmed && deviceLoc) {
-      const detectedArea = deviceLoc.area || deviceLoc.location || 'Pune';
-      const locQ = session.capability === 'Movement'
-        ? `At what area or location would you like to bring this initiative into action? (I noticed your location is ${detectedArea} — would you like to conduct it in ${detectedArea}, or somewhere else like FC Road, Kothrud, or Shivajinagar?)`
-        : `At what area or location did this happen? (I noticed your location is ${detectedArea} — did this happen in ${detectedArea}, or at another street/landmark?)`;
-
-      session.conversationHistory.push({ role: 'agent', content: locQ });
-      return { type: 'question', text: locQ };
-    }
-
-    if ((actuallyReady && session.locationConfirmed) || fillResult.ready_for_confirmation) {
-      session.phase = 'confirming';
-      const summary = buildConfirmationSummary(session);
-      const confirmText = buildConfirmText(session, summary);
-      session.conversationHistory.push({ role: 'agent', content: confirmText });
-      return { type: 'confirm', text: confirmText, summary, ready: true };
-    }
-
-    const nextQ = fillResult.next_question || `Could you tell me your ${stillMissing[0]?.label || 'remaining details'}?`;
-    session.conversationHistory.push({ role: 'agent', content: nextQ });
-    return { type: 'question', text: nextQ };
   }
 
-  // ── Phase: CONFIRMING ────────────────────────────────────────────────────────
+  // ── No service yet: work out what they need ───────────────────────────────
+  if (!session.service) {
+    let pick = null;
+    if (session.phase === 'choosing' && session.choices.length) {
+      // They are answering "which of these?"
+      const offered = catalog.filter((s) => session.choices.includes(s.id));
+      const n = understanding.normalize(message);
+      const byNumber = n.match(/^(\d)$|^(first|second|third)$/);
+      if (byNumber) pick = offered[byNumber[1] ? Number(byNumber[1]) - 1 : ['first', 'second', 'third'].indexOf(byNumber[2])] || null;
+      // "Is that right?" about a single service: yes takes it, no starts again.
+      if (!pick && offered.length === 1) {
+        const yn = understanding.ruleIntent(message);
+        if (yn === 'confirm') pick = offered[0];
+        else if (yn === 'deny') {
+          session.phase = 'open'; session.choices = []; session.said = [];
+          return { type: 'guidance', text: `No problem. ${OPENING}` };
+        }
+      }
+      if (!pick) {
+        const ranked = understanding.scoreServices(message, offered);
+        if (ranked[0] && ranked[0].score > 0 && (!ranked[1] || ranked[0].score > ranked[1].score)) pick = offered.find((s) => s.id === ranked[0].id);
+      }
+    }
+    if (!pick) {
+      const all = session.said.join('. ');
+      const choice = await understanding.chooseService(all, catalog, { useAi: useAi(session) });
+      noteAi(session, choice);
+      if (choice.intent === 'status') return statusReply(user);
+      if (choice.intent === 'cancel') { clearSession(sessionId); return { type: 'cancelled', text: 'Okay, nothing was sent.' }; }
+      // A bare "yes" or "no" with nothing to answer is not a request.
+      if (['confirm', 'deny'].includes(choice.intent)) { session.said.pop(); return { type: 'guidance', text: OPENING }; }
+      // Only a service that really exists in this person's catalog can be chosen.
+      pick = choice.serviceId ? catalog.find((s) => s.id === choice.serviceId) || null : null;
+      if (!pick) {
+        const offered = catalog.filter((s) => choice.candidates.includes(s.id)).slice(0, 3);
+        if (offered.length >= 2) {
+          session.phase = 'choosing';
+          session.choices = offered.map((s) => s.id);
+          const options = offered.map((s, i) => `${i + 1}. ${s.label}`).join('\n');
+          return { type: 'question', text: `I want to send this to the right place. Which is closest to what you need?\n\n${options}` };
+        }
+        if (offered.length === 1) {
+          // One possible match, but not a sure one: check before going further.
+          session.phase = 'choosing';
+          session.choices = [offered[0].id];
+          return { type: 'question', text: `It sounds like you want to ${offered[0].label.charAt(0).toLowerCase()}${offered[0].label.slice(1)}. Is that right?` };
+        }
+      }
+      if (!pick) {
+        session.phase = 'open';
+        const examples = catalog.slice(0, 3).map((s) => s.label.toLowerCase());
+        return { type: 'guidance', text: `${session.said.length > 1 ? 'I am not sure what you need yet. ' : ''}${OPENING} For example, I can help you ${listOf(examples)}.` };
+      }
+    }
+    const reply = await startService(session, pick, user, wards, session.said.join('. '));
+    if (session.heldFile) {
+      const param = matchFileToParameter(session.service.fileFields, session.heldFile);
+      if (param) session.pendingFiles.push({ ...session.heldFile, parameter_id: param.parameterId });
+      session.heldFile = null;
+      if (reply.type === 'confirm') return confirmReply(session);
+    }
+    return reply;
+  }
+
+  // ── A service is chosen: read this message against its fields ─────────────
+  if (onlyAttachment) return nextStep(session, wards, attachedNote);
+
+  const asked = session.asked;
+  const read = await understanding.readDetails({
+    message,
+    fields: session.service.fields,
+    wards,
+    askedKey: asked,
+    history: session.said.slice(0, -1),
+    phase: session.phase === 'confirming' ? 'confirm' : 'collect',
+    useAi: useAi(session),
+  });
+  noteAi(session, read);
+
+  if (read.intent === 'cancel') {
+    clearSession(sessionId);
+    return { type: 'cancelled', text: 'Okay, I have dropped it. Nothing was sent.' };
+  }
+  if (read.intent === 'status') return statusReply(user);
+
+  // ── Confirmation: only a plain yes sends it ───────────────────────────────
   if (session.phase === 'confirming') {
-    if (isAffirmativeReply(userMessage)) {
-      // Submit!
+    if (read.intent === 'confirm') {
       try {
-        const result = await submitDraft(session, sessionId);
+        const { entity, who } = await fileRequest(session, user, sessionId);
+        const files = session.pendingFiles.map((f) => f.originalName);
+        session.pendingFiles = [];
         session.phase = 'done';
-        const fileCount = (result.files || []).length;
-        const fileText = fileCount > 0 ? `\n📎 ${fileCount} file(s) attached: ${result.files.join(', ')}` : '';
-        const successMsg = `✅ Your ${session.capability} has been submitted successfully!\n\n**Reference: #${result.entity_id}** — ${result.name}${fileText}\n\nYou can view and track it at any time from "My Requests".`;
-        session.conversationHistory.push({ role: 'agent', content: successMsg });
+        const ref = reference(entity.entity_id);
         return {
           type: 'submitted',
-          text: successMsg,
-          entity_id: result.entity_id,
-          entity_name: result.name,
-          capability: session.capability,
-          files: result.files,
+          text: `Done. Your reference is **${ref}**.\n\n${who} looks at it next. You will get a notification each time it moves, and you can follow it under My requests.`,
+          entity_id: entity.entity_id,
+          entity_name: entity.name,
+          reference: ref,
+          capability: session.service.label,
+          files,
         };
       } catch (err) {
-        console.error('[AGENT SUBMIT] Submission failed:', err);
-        const errMsg = `Sorry, the submission failed: ${err.message}. Please try again or use the manual form.`;
-        session.conversationHistory.push({ role: 'agent', content: errMsg });
-        return { type: 'error', text: errMsg };
+        console.error('[CIVIC ASSISTANT] Filing failed:', err.message);
+        // Still unconfirmed-and-unsent: the citizen can try again with one word.
+        return { type: 'error', text: 'Sorry, I could not send that just now, and nothing was saved. Say **yes** to try again, or tell me what to change.' };
       }
     }
-
-    // Non-affirmative — check if user wants to cancel or change something
-    const normalized = String(userMessage).toLowerCase().trim();
-    if (normalized.includes('cancel') || normalized.includes('stop') || normalized.includes('no')) {
-      session.phase = 'done';
-      const cancelMsg = 'Okay, I\'ve cancelled this submission. Your information has not been saved. Feel free to start a new request anytime!';
-      session.conversationHistory.push({ role: 'agent', content: cancelMsg });
-      return { type: 'cancelled', text: cancelMsg };
+    if (read.intent === 'deny' && !Object.keys(read.values).length && !read.ward) {
+      return { type: 'question', text: 'No problem. What should I change?' };
     }
-
-    // User might be editing — go back to collecting
-    session.phase = 'collecting';
-    const editMsg = 'No problem! Let me update that. ' + (await (async () => {
-      const fillResult = await extractFormValues(session, userMessage, attachedFile);
-      for (const [paramIdStr, value] of Object.entries(fillResult.extracted_values || {})) {
-        const paramId = parseInt(paramIdStr, 10);
-        if (!isNaN(paramId) && value !== null && value !== '') session.draft[paramId] = value;
-      }
-      const stillMissing = session.requiredParams.filter(p => !session.draft[p.parameter_id]);
-      if (stillMissing.length === 0) {
-        session.phase = 'confirming';
-        const summary = buildConfirmationSummary(session);
-        return buildConfirmText(session, summary);
-      }
-      return fillResult.next_question || `Could you confirm your ${stillMissing[0]?.label}?`;
-    })());
-    session.conversationHistory.push({ role: 'agent', content: editMsg });
-    return { type: session.phase === 'confirming' ? 'confirm' : 'question', text: editMsg };
   }
 
-  // ── Phase: DONE ──────────────────────────────────────────────────────────────
-  // Session complete — start fresh with new intent
-  session.phase = 'intent';
-  session.capability = null;
-  session.entityTypeId = null;
-  session.formId = null;
-  session.formSchema = null;
-  session.requiredParams = [];
-  session.allTextParams = [];
-  session.fileParams = [];
-  session.pendingFiles = [];
-  session.draft = {};
-  session.location = null;
-  session.area = null;
-  session.latitude = null;
-  session.longitude = null;
-  session.locationConfirmed = false;
+  // ── Take in what this message said: answers, extra details, corrections ───
+  const values = { ...read.values };
+  const askedField = asked && asked !== '__ward' ? session.service.fields.find((f) => f.key === asked) : null;
+  // A free-text answer to the question just asked.
+  if (askedField && values[asked] === undefined && !['choice'].includes(askedField.type) && read.intent !== 'correct') values[asked] = message;
+  if (askedField && askedField.type === 'choice' && values[asked] === undefined) values[asked] = message;
 
-  const freshReply = 'Is there anything else I can help you with? I can help you report a problem, start an initiative, or check your request status.';
-  session.conversationHistory.push({ role: 'agent', content: freshReply });
-  return { type: 'guidance', text: freshReply };
-}
+  const before = { ...session.draft };
+  const wardBefore = session.ward;
+  const { accepted, refused } = absorb(session, values);
+  if (read.ward && (!session.ward || read.ward.id !== session.ward.id)) session.ward = read.ward;
+  if (read.place) session.place = read.place;
 
-function buildConfirmText(session, summary) {
-  const lines = summary.map(s => `• **${s.label}**: ${s.value}`).join('\n');
-  const filesList = (session.pendingFiles || []).map(f => f.originalName);
-  const fileNote = filesList.length > 0
-    ? `\n\n📎 **Attached files:** ${filesList.join(', ')} (will be submitted with this request)`
-    : '\n\n_Tip: You can attach photo/document evidence directly here in chat, or after submission from "My Requests"._';
-  return `Here's a summary of your ${session.capability} submission:\n\n${lines}${fileNote}\n\n**Shall I submit this?** (Reply "yes" to confirm or "no" to cancel)`;
+  // The asked question got an answer that does not pass: say why, ask again.
+  const failedAsked = refused.find((r) => r.field.key === asked);
+  if (failedAsked) {
+    return { type: 'question', text: `${failedAsked.why}${failedAsked.field.type === 'choice' ? '' : ` ${questionFor(failedAsked.field)}`}`, invalid: asked };
+  }
+  if (asked === '__ward' && !session.ward && !accepted.length) {
+    const names = wards.slice(0, 8).map((w) => w.name);
+    return { type: 'question', text: `I do not know that area yet. ${names.length ? `I can file it under ${listOf(names)}. Which is closest?` : 'Which ward is it in?'}`, invalid: '__ward' };
+  }
+
+  // Say what changed, when something already given was changed.
+  const changed = accepted.filter((f) => before[f.key] !== undefined && before[f.key] !== session.draft[f.key]);
+  const changes = changed.map((f) => `${f.plain} is now ${session.draft[f.key]}`);
+  if (wardBefore && session.ward && wardBefore.id !== session.ward.id) changes.push(`the area is now ${session.ward.name}`);
+  let lead = changes.length ? `Changed: ${changes.join('; ')}.` : (attachedNote || '');
+
+  if (session.phase === 'confirming' && !changes.length && !accepted.length) {
+    return { type: 'question', text: 'Say **yes** to send it, or tell me what to change, for example "the area is Aundh".' };
+  }
+  if (!lead && accepted.length) lead = 'Thanks.';
+  return nextStep(session, wards, lead);
 }
 
 module.exports = {
   continueFormFilling,
   clearSession,
   matchFileToParameter,
-  // Exported for testing
+  // exposed for tests
   _sessions: sessions,
-  _extractParameters: extractParameters,
-  _isAffirmativeReply: isAffirmativeReply,
-  _synthesizeEntityName: synthesizeEntityName,
+  _loadServiceCatalog: loadServiceCatalog,
+  _validateValue: validateValue,
+  _describeService: describeService,
 };

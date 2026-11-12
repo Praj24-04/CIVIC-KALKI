@@ -17,7 +17,7 @@ const request = require('supertest');
 const app = require('../index');
 const prisma = require('../db');
 const aiClient = require('../services/aiClient');
-const { routeIntent } = require('../services/agentIntentRouter');
+const { askJson } = require('../services/agentIntentRouter');
 const { createTestUser, cleanupAll } = require('./helpers/authHelper');
 
 const TIMEOUT_MS = 200;
@@ -97,28 +97,31 @@ describe('A1 — AI client', () => {
     });
   });
 
+  // The assistant's understanding layer asks the model for JSON through one helper.
   describe('retry on parse failure only', () => {
-    test('unparseable answer: exactly one retry, then "unclear" (AI was reachable)', async () => {
+    const valid = (d) => typeof d.intent === 'string';
+
+    test('unparseable answer: exactly one retry, then no data (the AI was reachable)', async () => {
       mockGenerate.mockResolvedValue(reply('this is not json'));
-      const intent = await routeIntent('hello', []);
-      expect(intent).toMatchObject({ action_type: 'unclear', ai_unavailable: false });
+      const out = await askJson('classify: hello', valid);
+      expect(out).toEqual({ data: null, aiUnavailable: false });
       expect(mockGenerate).toHaveBeenCalledTimes(2);
     });
 
     test('unparseable answer then a valid one: the retry is used', async () => {
       mockGenerate
         .mockResolvedValueOnce(reply('not json'))
-        .mockResolvedValueOnce(reply('{"action_type":"status_check","matched_capability":null,"confidence":"high"}'));
-      const intent = await routeIntent('status of my requests', []);
-      expect(intent.action_type).toBe('status_check');
+        .mockResolvedValueOnce(reply('{"intent":"status"}'));
+      const out = await askJson('classify: status of my requests', valid);
+      expect(out.data.intent).toBe('status');
       expect(mockGenerate).toHaveBeenCalledTimes(2);
     });
 
-    test('AI unreachable: one call, one timeout, flagged ai_unavailable', async () => {
+    test('AI unreachable: one call, one timeout, flagged aiUnavailable', async () => {
       mockGenerate.mockImplementation(never);
       const started = Date.now();
-      const intent = await routeIntent('hello', []);
-      expect(intent).toMatchObject({ action_type: 'unclear', ai_unavailable: true });
+      const out = await askJson('classify: hello', valid);
+      expect(out).toEqual({ data: null, aiUnavailable: true });
       expect(Date.now() - started).toBeLessThan(TIMEOUT_MS + 500);
       expect(mockGenerate).toHaveBeenCalledTimes(1);
     });
@@ -159,21 +162,20 @@ describe('A1 — AI client', () => {
       request(app).post('/agent/chat').set(citizen.headers)
         .send({ sessionId: `a1-${Date.now()}-${Math.random()}`, message });
 
+    // The assistant no longer depends on the AI: without it, it understands by
+    // rules and the conversation goes on. (Its own behaviour is in agent.test.js.)
     test.each([
       ['no key', () => { delete process.env.GEMINI_API_KEY; }],
       ['AI never answers', () => { mockGenerate.mockImplementation(never); }],
       ['network error', () => { mockGenerate.mockRejectedValue(new Error('fetch failed')); }],
-    ])('assistant, %s: says it is unavailable and points to the manual form', async (_label, arrange) => {
+    ])('assistant, %s: still answers, quickly, without pretending to be AI', async (_label, arrange) => {
       arrange();
       const started = Date.now();
       const res = await chat('There is a broken streetlight near my house');
-      expect(Date.now() - started).toBeLessThan(TIMEOUT_MS + 2000);
+      expect(Date.now() - started).toBeLessThan(TIMEOUT_MS * 2 + 2000);
       expect(res.status).toBe(200);
-      const body = JSON.stringify(res.body);
-      expect(body).toContain('ai_unavailable');
-      expect(body).toMatch(/AI assistant is unavailable/);
-      expect(body).toMatch(/not an AI answer/);
-      expect(body).toContain('/entities/new');
+      expect(res.body.data.type).toBe('question');
+      expect(res.body.data.text).not.toMatch(/unavailable|error/i);
     });
 
     test('director report, AI never answers: fails closed within the timeout and is logged', async () => {

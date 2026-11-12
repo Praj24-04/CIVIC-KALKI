@@ -105,6 +105,8 @@ router.post(
       const user = {
         user_id: Number(req.user.user_id),
         role:    req.user.role || 'citizen',
+        name:    req.user.name || null,
+        assignedArea: req.user.assignedArea || req.user.assigned_area || null,
       };
 
       const result = await continueFormFilling(cleanSessionId, cleanMessage, user, [], attachedFile);
