@@ -80,11 +80,13 @@ async function verifyToken(req, res, next) {
         where: { user_id: Number(decoded.user_id) },
         select: { user_id: true, name: true, role: true, assignedArea: true },
       });
-      if (dbUser) {
-        req.user.role = dbUser.role;
-        req.user.assignedArea = dbUser.assignedArea || null;
-        req.user.assigned_area = dbUser.assignedArea || null;
+      // The account is gone: the token's claims are no longer trusted.
+      if (!dbUser) {
+        return next(createHttpError('Authentication is required.', 401));
       }
+      req.user.role = dbUser.role;
+      req.user.assignedArea = dbUser.assignedArea || null;
+      req.user.assigned_area = dbUser.assignedArea || null;
     }
 
     return next();
@@ -128,11 +130,13 @@ async function optionalAuth(req, res, next) {
         where: { user_id: Number(decoded.user_id) },
         select: { user_id: true, name: true, role: true, assignedArea: true },
       });
-      if (dbUser) {
-        req.user.role = dbUser.role;
-        req.user.assignedArea = dbUser.assignedArea || null;
-        req.user.assigned_area = dbUser.assignedArea || null;
+      // The account is gone: the token's claims are no longer trusted.
+      if (!dbUser) {
+        return next(createHttpError('Authentication is required.', 401));
       }
+      req.user.role = dbUser.role;
+      req.user.assignedArea = dbUser.assignedArea || null;
+      req.user.assigned_area = dbUser.assignedArea || null;
     }
 
     return next();
@@ -146,6 +150,8 @@ async function optionalAuth(req, res, next) {
  * Requires verifyToken to have run first (or checks req.user).
  */
 function checkRole(allowedRoles) {
+  // Always compare against a list: a bare string would make `includes` a substring match.
+  const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
   return async (req, res, next) => {
     try {
       if (!req.user || !req.user.user_id) {
@@ -161,7 +167,7 @@ function checkRole(allowedRoles) {
         return next(createHttpError('User account not found.', 401));
       }
 
-      if (!allowedRoles.includes(user.role)) {
+      if (!roles.includes(user.role)) {
         return next(createHttpError('You do not have permission to perform this action.', 403));
       }
 

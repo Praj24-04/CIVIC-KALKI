@@ -277,16 +277,19 @@ export async function translatePage(langCode) {
   isTranslating = true;
 
   try {
-    const res = await fetch('/api/translate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'ck-web',
-      },
-      body: JSON.stringify({ texts: uncached, targetLang: target })
-    });
+    // The server takes at most 100 strings of up to 2000 characters per request.
+    const sendable = uncached.filter((s) => s.length <= 2000);
+    for (let i = 0; i < sendable.length; i += 100) {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'ck-web',
+        },
+        body: JSON.stringify({ texts: sendable.slice(i, i + 100), targetLang: target })
+      });
+      if (!res.ok) break; // rate limited (429) or refused: keep the page as it is
 
-    if (res.ok) {
       const data = await res.json();
       if (data && data.translations) {
         saveCachedTranslations(target, data.translations);

@@ -7,6 +7,34 @@
 const express = require('express');
 const router = express.Router();
 
+// ── Limits: open to everyone (signed-out visitors translate the public pages),
+// bounded batches, and a rate limit per signed-in user or, if signed out, per IP.
+const MAX_TEXTS = 100;          // strings per request (the client sends batches)
+const MAX_TEXT_LENGTH = 2000;   // characters per string
+const RATE_LIMIT = 60;          // requests per caller per window
+const RATE_WINDOW_MS = 60 * 1000;
+const LANG_CODE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
+const requestCounts = new Map(); // 'user:<id>' | 'ip:<addr>' -> { count, windowStart }
+
+function rateLimitKey(req) {
+  if (req.user && req.user.user_id) return `user:${req.user.user_id}`;
+  return `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`;
+}
+
+function isRateLimited(key) {
+  const now = Date.now();
+  if (requestCounts.size > 10000) {
+    for (const [k, e] of requestCounts) if (now - e.windowStart >= RATE_WINDOW_MS) requestCounts.delete(k);
+  }
+  const entry = requestCounts.get(key);
+  if (!entry || now - entry.windowStart >= RATE_WINDOW_MS) {
+    requestCounts.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > RATE_LIMIT;
+}
+
 // In-memory LRU cache to minimize network calls and provide sub-millisecond responses
 const translationCache = new Map();
 
@@ -54,6 +82,10 @@ async function translateSingle(text, targetLang) {
  */
 router.post('/', async (req, res) => {
   try {
+    if (isRateLimited(rateLimitKey(req))) {
+      return res.status(429).json({ success: false, error: 'Too many translation requests. Please wait a minute.' });
+    }
+
     const { texts, targetLang } = req.body;
 
     if (!texts || !Array.isArray(texts) || !targetLang) {
@@ -61,6 +93,15 @@ router.post('/', async (req, res) => {
         success: false,
         error: 'Invalid parameters. Expected { texts: string[], targetLang: string }'
       });
+    }
+    if (typeof targetLang !== 'string' || !LANG_CODE.test(targetLang)) {
+      return res.status(400).json({ success: false, error: 'targetLang must be a language code such as "hi" or "mr".' });
+    }
+    if (texts.length > MAX_TEXTS) {
+      return res.status(400).json({ success: false, error: `At most ${MAX_TEXTS} texts per request.` });
+    }
+    if (texts.some((t) => t !== null && t !== undefined && (typeof t !== 'string' || t.length > MAX_TEXT_LENGTH))) {
+      return res.status(400).json({ success: false, error: `Each text must be a string of at most ${MAX_TEXT_LENGTH} characters.` });
     }
 
     // If English, return 1:1 mapping
@@ -99,3 +140,4 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.limits = { MAX_TEXTS, MAX_TEXT_LENGTH, RATE_LIMIT };

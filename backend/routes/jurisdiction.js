@@ -297,7 +297,7 @@ router.get('/:id', async (req, res, next) => {
 // POST /jurisdictions (Admin-only)
 // Create a new jurisdiction node with parent/type hierarchy and sibling checks.
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/', verifyToken, checkRole('admin'), async (req, res, next) => {
+router.post('/', verifyToken, checkRole(['admin']), async (req, res, next) => {
   try {
     const { name, type, parent_id, code } = req.body;
 
@@ -387,7 +387,7 @@ router.post('/', verifyToken, checkRole('admin'), async (req, res, next) => {
 // PUT /jurisdictions/:id (Admin-only)
 // Update details or toggle status.
 // ─────────────────────────────────────────────────────────────────────────────
-router.put('/:id', verifyToken, checkRole('admin'), async (req, res, next) => {
+router.put('/:id', verifyToken, checkRole(['admin']), async (req, res, next) => {
   try {
     const id = parsePositiveInt(req.params.id, 'id');
     const { name, code, status, parent_id } = req.body;
@@ -453,7 +453,7 @@ router.put('/:id', verifyToken, checkRole('admin'), async (req, res, next) => {
 // DELETE /jurisdictions/:id (Admin-only)
 // Non-destructive deactivation: prefers inactive status over deletion.
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete('/:id', verifyToken, checkRole('admin'), async (req, res, next) => {
+router.delete('/:id', verifyToken, checkRole(['admin']), async (req, res, next) => {
   try {
     const id = parsePositiveInt(req.params.id, 'id');
 
