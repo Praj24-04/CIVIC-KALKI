@@ -604,6 +604,8 @@ async function buildCasePanel(entityId, user) {
     similar_cases: similar,
     similar_window_days: SIMILAR_WINDOW_DAYS,
     filed_at: dates.filedAt,
+    days_since_filed: dates.daysSinceFiled,
+    days_in_status: dates.daysInStatus,
     suggestion: suggestionOut,
     suggestion_none_reason: suggestion ? null : whyNone,
     allowed_transitions: allowed,

@@ -131,7 +131,7 @@ function renderContent(container, entity, values, audit, lineage, workflowMeta, 
       <div class="card mb-6" id="case-panel-card" style="border:1px solid var(--primary-border);">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; padding:0.85rem 1.25rem;">
           <h3 class="card-title" style="margin:0;">Case panel</h3>
-          <span style="font-size:12px; color:var(--text-muted);">Checklist, flags and suggestion are rule-based. Only the brief is AI.</span>
+          <span style="font-size:12px; color:var(--text-muted);">Only the summary is AI; everything else follows rules.</span>
         </div>
         <div class="card-body" id="case-panel-body" style="padding:1rem 1.25rem;">
           <div class="text-muted text-sm">Loading case panel…</div>
@@ -636,80 +636,136 @@ async function loadCasePanel(entity) {
   }
 }
 
-function panelSection(title, note, inner) {
-  return `
-    <div style="margin-bottom:14px;">
-      <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:6px;">
-        <div style="font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-secondary);">${escapeHtml(title)}</div>
-        <div style="font-size:11px; color:var(--text-muted);">${note}</div>
-      </div>
-      ${inner}
-    </div>`;
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 function renderBrief(brief, unavailableReason, pending) {
   if (brief) {
     return `
-      <div style="font-size:14px; line-height:1.5; color:var(--text-primary);">
-        ${brief.lines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}
-      </div>
-      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
-        <span class="badge badge-primary" style="font-size:10px;">AI-generated</span>
-        Review before acting. Written from this record's fields, documents and notes only · ${escapeHtml(brief.model || '')} · ${escapeHtml(brief.prompt_version || '')}
-      </div>`;
+      <ul class="cp-brief-lines">
+        ${brief.lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}
+      </ul>
+      <div class="cp-foot">Written from this record only · review before acting · ${escapeHtml(brief.model || '')}</div>`;
   }
-  if (pending) return `<div class="text-muted text-sm">Writing brief…</div>`;
-  return `<div class="text-muted text-sm">No AI brief: ${escapeHtml(String(unavailableReason || 'not available').replace(/\.$/, ''))}. Everything below is rule-based and unaffected.</div>`;
+  if (pending) {
+    return `<div class="cp-brief-wait"><span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Writing a short summary of this case…</div>`;
+  }
+  return `<div class="cp-muted">No AI summary: ${escapeHtml(String(unavailableReason || 'not available').replace(/\.$/, ''))}. Everything else in this panel is rule-based and unaffected.</div>`;
+}
+
+// The one-line verdict at the top: what the rules say to do, coloured by how
+// much attention the case needs. Rule-based; the coordinator always decides.
+function caseVerdict(panel, entity) {
+  const s = panel.suggestion;
+  const missing = panel.checklist.filter((i) => i.required && !i.present);
+  if (!s) {
+    return { tone: 'idle', icon: '•', title: 'No action for you right now', detail: panel.suggestion_none_reason || 'No rule points to a single action.' };
+  }
+  if (s.outcome === 'dismissed') {
+    return { tone: 'idle', icon: '•', title: 'Suggestion dismissed', detail: 'All workflow actions are still available in the actions box.' };
+  }
+  const label = formatActionLabel(entity.status, s.to_status);
+  if (s.to_status === 'rejected') {
+    return { tone: 'stop', icon: '!', title: `${plural(missing.length || 1, 'required item')} missing`, detail: s.reason, label };
+  }
+  if (panel.flags.length) {
+    return { tone: 'review', icon: '?', title: `Complete, but ${plural(panel.flags.length, 'flag')} to check`, detail: s.reason, label };
+  }
+  return { tone: 'go', icon: '✓', title: 'Complete and ready', detail: s.reason, label };
 }
 
 function renderCasePanel(panel, entity) {
-  const brief = panelSection('Case brief', '', `<div id="case-brief">${renderBrief(panel.brief, panel.brief_unavailable_reason, panel.brief_pending)}</div>`);
-
-  const missingRequired = panel.checklist.filter((i) => i.required && !i.present).length;
-  const checklistRows = panel.checklist.map((i) => `
-    <div style="display:flex; justify-content:space-between; gap:8px; font-size:13px; padding:3px 0;">
-      <span>${escapeHtml(i.label)} <span style="color:var(--text-muted); font-size:11px;">${i.kind === 'document' ? 'document' : 'field'} · ${i.required ? 'required' : 'optional'}</span></span>
-      <span style="font-weight:600; color:${i.present ? 'var(--green-600)' : (i.required ? '#b91c1c' : 'var(--text-muted)')};">${i.present ? 'Present' : 'Missing'}</span>
-    </div>`).join('');
-  const checklist = panelSection('Checklist', `From the form's metadata · ${missingRequired} required missing`,
-    checklistRows || '<div class="text-muted text-sm">This form defines no required fields or documents.</div>');
-
-  const flagRows = panel.flags.map((f) => `
-    <div style="font-size:13px; padding:3px 0;">
-      <strong>${escapeHtml(f.label)}</strong>
-      <span style="color:var(--text-muted); font-size:12px;"> · source: ${escapeHtml(f.source_label)} = ${escapeHtml(f.value)} · rule: ${escapeHtml(f.rule)}</span>
-    </div>`).join('');
-  const flags = panelSection('Flags', `${panel.flag_rules_configured} configured rule${panel.flag_rules_configured === 1 ? '' : 's'}`,
-    flagRows || `<div class="text-muted text-sm">${panel.flag_rules_configured ? 'No configured rule is raised by this case.' : 'No flag rules are configured for this service.'}</div>`);
-
-  const similarRows = panel.similar_cases.map((c) => `
-    <div style="font-size:13px; padding:3px 0;">
-      <a href="/entities/${c.entity_id}" data-link>#${c.entity_id} ${escapeHtml(c.name)}</a>
-      <span style="color:var(--text-muted); font-size:12px;"> · ${escapeHtml(formatStatusLabel(c.status))} · filed ${escapeHtml(new Date(c.filed_at).toLocaleDateString())}</span>
-    </div>`).join('');
-  const similar = panelSection('Similar cases', `Same service, same area, within ${panel.similar_window_days} days`,
-    similarRows || '<div class="text-muted text-sm">None found.</div>');
-
-  let suggestionInner;
+  const v = caseVerdict(panel, entity);
   const s = panel.suggestion;
-  if (!s) {
-    suggestionInner = `<div class="text-muted text-sm">${escapeHtml(panel.suggestion_none_reason || 'No suggestion.')}</div>`;
-  } else if (s.outcome === 'dismissed') {
-    suggestionInner = `<div class="text-muted text-sm">You dismissed the suggestion for this case. The workflow actions remain available in the actions box.</div>`;
-  } else {
-    const label = formatActionLabel(entity.status, s.to_status);
-    suggestionInner = `
-      <div style="font-size:14px;"><strong>${escapeHtml(label)}</strong></div>
-      <div style="font-size:13px; color:var(--text-secondary); margin:2px 0 8px;">${escapeHtml(s.reason)}</div>
-      <div style="display:flex; gap:8px; flex-wrap:wrap;">
-        <button class="btn ${s.to_status === 'rejected' ? 'btn-danger' : 'btn-primary'} btn-sm" id="case-suggestion-act">${escapeHtml(label)}…</button>
-        <button class="btn btn-ghost btn-sm" id="case-suggestion-dismiss">Dismiss</button>
+  const showActions = s && s.outcome !== 'dismissed';
+  const verdict = `
+    <div class="cp-verdict cp-${v.tone}">
+      <div class="cp-verdict-icon" aria-hidden="true">${v.icon}</div>
+      <div class="cp-verdict-text">
+        <div class="cp-verdict-title">${escapeHtml(v.title)}</div>
+        <div class="cp-verdict-detail">${escapeHtml(v.detail)}</div>
+        ${showActions ? '<div class="cp-foot">Rule-based suggestion · nothing happens until you confirm · your choice is logged</div>' : ''}
       </div>
-      <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">Nothing happens until you confirm. Your choice is logged.</div>`;
-  }
-  const suggestion = panelSection('Suggested next action', 'Rule-based · you decide', suggestionInner);
+      ${showActions ? `
+      <div class="cp-verdict-actions">
+        <button class="btn ${s.to_status === 'rejected' ? 'btn-danger' : 'btn-primary'} btn-sm" id="case-suggestion-act">${escapeHtml(v.label)}…</button>
+        <button class="btn btn-ghost btn-sm" id="case-suggestion-dismiss">Dismiss</button>
+      </div>` : ''}
+    </div>`;
 
-  return brief + checklist + flags + similar + suggestion;
+  // ── At a glance ──
+  const required = panel.checklist.filter((i) => i.required);
+  const requiredPresent = required.filter((i) => i.present).length;
+  const waiting = panel.days_in_status;
+  const stat = (value, label, tone, hint) => `
+    <div class="cp-stat ${tone ? `cp-stat-${tone}` : ''}" ${hint ? `title="${escapeHtml(hint)}"` : ''}>
+      <div class="cp-stat-value">${value}</div>
+      <div class="cp-stat-label">${label}</div>
+    </div>`;
+  const requiredTone = !required.length ? '' : (requiredPresent < required.length ? 'stop' : 'go');
+  const stats = `
+    <div class="cp-stats">
+      ${stat(required.length ? `${requiredPresent}/${required.length}` : '—', 'Required items', requiredTone)}
+      ${stat(panel.flags.length, panel.flags.length === 1 ? 'Flag' : 'Flags', panel.flags.length ? 'review' : '', `${plural(panel.flag_rules_configured, 'configured rule')} for this service`)}
+      ${stat(panel.similar_cases.length, 'Similar nearby', '', `Same service and area, last ${panel.similar_window_days} days`)}
+      ${stat(waiting === null || waiting === undefined ? '—' : `${waiting}d`, `In "${escapeHtml(formatStatusLabel(entity.status))}"`, '', panel.filed_at ? `Filed ${new Date(panel.filed_at).toLocaleDateString()}` : '')}
+    </div>`;
+
+  // ── AI summary ──
+  const brief = `
+    <div class="cp-block cp-brief">
+      <div class="cp-block-head"><span>Case summary</span><span class="cp-tag cp-tag-ai">AI</span></div>
+      <div id="case-brief">${renderBrief(panel.brief, panel.brief_unavailable_reason, panel.brief_pending)}</div>
+    </div>`;
+
+  // ── Checklist: what is missing comes first ──
+  const order = (i) => (i.present ? 2 : (i.required ? 0 : 1));
+  const items = [...panel.checklist].sort((a, b) => order(a) - order(b));
+  const itemRow = (i) => {
+    const state = i.present ? 'ok' : (i.required ? 'miss' : 'opt');
+    const mark = i.present ? '✓' : (i.required ? '✕' : '–');
+    const meta = [
+      i.kind === 'document' ? (i.present && i.count ? plural(i.count, 'file') : 'document') : null,
+      i.required ? null : 'optional',
+    ].filter(Boolean).join(' · ');
+    return `
+      <li class="cp-item cp-item-${state}">
+        <span class="cp-mark" aria-hidden="true">${mark}</span>
+        <span class="cp-item-label">${escapeHtml(i.label)}</span>
+        ${meta ? `<span class="cp-item-meta">${escapeHtml(meta)}</span>` : ''}
+      </li>`;
+  };
+  const checklist = `
+    <div class="cp-block">
+      <div class="cp-block-head"><span>Checklist</span><span class="cp-tag">Rule-based</span></div>
+      ${items.length ? `<ul class="cp-list">${items.map(itemRow).join('')}</ul>` : '<div class="cp-muted">This form defines no required fields or documents.</div>'}
+    </div>`;
+
+  // ── Flags and similar cases ──
+  const flagItems = panel.flags.map((f) => `
+    <li class="cp-flag">
+      <div class="cp-flag-label">${escapeHtml(f.label)}</div>
+      <div class="cp-item-meta">${escapeHtml(f.source_label)}: ${escapeHtml(f.value)}</div>
+    </li>`).join('');
+  const flags = `
+    <div class="cp-block">
+      <div class="cp-block-head"><span>Flags</span><span class="cp-tag">Rule-based</span></div>
+      ${panel.flags.length ? `<ul class="cp-list">${flagItems}</ul>`
+        : `<div class="cp-muted">${panel.flag_rules_configured ? 'Nothing raised.' : 'No flag rules set up for this service.'}</div>`}
+    </div>`;
+  const similarItems = panel.similar_cases.map((c) => `
+    <li class="cp-similar">
+      <a href="/entities/${c.entity_id}" data-link>#${c.entity_id} ${escapeHtml(c.name)}</a>
+      <span class="badge badge-${escapeHtml(String(c.status || '').toLowerCase())}">${escapeHtml(formatStatusLabel(c.status))}</span>
+    </li>`).join('');
+  const similar = `
+    <div class="cp-block">
+      <div class="cp-block-head"><span>Similar nearby</span><span class="cp-item-meta">last ${panel.similar_window_days} days</span></div>
+      ${panel.similar_cases.length ? `<ul class="cp-list">${similarItems}</ul>` : '<div class="cp-muted">None in this area.</div>'}
+    </div>`;
+
+  return `${verdict}${stats}${brief}<div class="cp-grid">${checklist}<div class="cp-col">${flags}${similar}</div></div>`;
 }
 
 function attachCasePanelEvents(panel, entity) {
