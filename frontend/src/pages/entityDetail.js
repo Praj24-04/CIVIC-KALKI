@@ -228,7 +228,9 @@ function renderContent(container, entity, values, audit, lineage, workflowMeta, 
 
   // Module Reports Shortcuts section
   let reportsShortcutHTML = '';
-  if (moduleReports.length > 0) {
+  // Executing reports is a director/admin action (docs/ROLE_MATRIX.md).
+  const canExecuteReports = user && ['director', 'admin'].includes(user.role);
+  if (canExecuteReports && moduleReports.length > 0) {
     reportsShortcutHTML = `
       <div class="card mb-6" style="border-top:3px solid var(--green-600);">
         <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">

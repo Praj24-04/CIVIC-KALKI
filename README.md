@@ -5,6 +5,7 @@ A metadata-driven Civic Operating System. One generic engine (entities, forms, w
 - Plan and status: [`docs/PLAN.md`](docs/PLAN.md)
 - Assessment behind the plan: [`docs/ASSESSMENT.md`](docs/ASSESSMENT.md)
 - Demo click path: [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
+- Who may do what: [`docs/ROLE_MATRIX.md`](docs/ROLE_MATRIX.md)
 
 ## Run locally
 

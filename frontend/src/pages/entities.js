@@ -348,7 +348,8 @@ async function loadBuzzDrafts() {
   const container = document.getElementById('ck-buzz-drafts-section');
   if (!container) return;
   const user = getUser();
-  if (!user) {
+  // Only citizens create Civic Buzz posts, so only they have drafts.
+  if (!user || user.role !== 'citizen') {
     container.innerHTML = '';
     return;
   }

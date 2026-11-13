@@ -100,6 +100,14 @@ export async function refreshUser() {
   return _fetchMe();
 }
 
+// ── Civic Buzz: only citizens create posts, upvote and follow ─────────────
+// Signed-out visitors still see the controls (they prompt for sign-in); the
+// backend returns 403 for every other role. See docs/ROLE_MATRIX.md.
+export function canBuzzParticipate() {
+  const user = getUser();
+  return !user || user.role === 'citizen';
+}
+
 // ── requireAuth: redirect to /login if not authenticated ─────────────────
 export function requireAuth(navigate) {
   if (!isAuthenticated()) {

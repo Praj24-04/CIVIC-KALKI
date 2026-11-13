@@ -36,6 +36,7 @@ Date: 11 Nov 2026. Deadline: **Sat 14 Nov 2026**. Evidence for every item is in 
 | — | Review fixes, batch 1 | **Done** 12 Nov: `npm run ai:check`; review bugs 1, 2, 10, 11, 12 fixed (one commit each) |
 | — | Review fixes, batch 2 | **Done** 12 Nov: review bugs 3, 4, 8 fixed (one commit each). Bugs 5, 6, 7, 9 are not fixed; see "Known limitations" |
 | — | Civic assistant rebuild | **Done** 13 Nov, by request: conversation engine in code (`services/agentFormFiller.js`), understanding layer with AI and a rules fallback (`services/agentIntentRouter.js`), services and required details from metadata, filing through the workflow engine; chat page and home card updated. Not run with a real Gemini key |
+| — | Role gating | **Done** 13 Nov, by request: Civic Reports card on a record for director/admin only; Governance Intelligence director/admin only (403 for others); Civic Buzz create, upvote and follow for citizens only (403 for others, controls hidden). Rules in [`docs/ROLE_MATRIX.md`](ROLE_MATRIX.md) |
 | 3 | Remaining Should/Could items (F2, B3, B4, M1, G2, B5, B6, F1), V2 3D columns | On hold until the review findings are decided |
 
 ## Tier 1 — correctness and a demo that cannot fail

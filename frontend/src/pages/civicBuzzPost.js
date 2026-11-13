@@ -9,7 +9,7 @@
  * - Log view event when the card is shown.
  */
 
-import { getUser } from '../auth.js';
+import { getUser, canBuzzParticipate } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { buzz } from '../api.js';
 import { toastSuccess, toastError, toastWarning } from '../components/toast.js';
@@ -165,10 +165,12 @@ export async function renderCivicBuzzPost(params) {
                 </button>
 
                 <!-- Upvote Toggle -->
+                ${canBuzzParticipate() ? `
                 <button type="button" class="ck-buzz-act-btn ${post.has_voted ? 'active' : ''}" id="ck-post-upvote-btn" style="border-radius:999px;">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
                   <span id="ck-post-vote-label">${post.has_voted ? 'Upvoted' : 'Upvote'}</span>
                 </button>
+                ` : ''}
 
                 ${isInitiative ? `
                   <button type="button" class="btn btn-secondary" id="ck-post-join-btn" style="border-radius:999px; font-weight:700; color:#059669; border-color:#a7f3d0; background:#ecfdf5; display:inline-flex; align-items:center; gap:6px;">

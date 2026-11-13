@@ -15,7 +15,11 @@ const path    = require('path');
 const fs      = require('fs');
 
 const prisma             = require('../db');
-const { verifyToken }    = require('../middleware/auth');
+const { verifyToken, checkRole } = require('../middleware/auth');
+
+// Only citizens create posts, upvote and follow. Staff moderate (Report) and
+// read impact (stats); see docs/ROLE_MATRIX.md.
+const citizenOnly = checkRole(['citizen']);
 const { buzzSafetyCheck }    = require('../services/buzzSafety');
 const { generateBuzzCaptions } = require('../services/buzzCaption');
 
@@ -229,7 +233,7 @@ router.get('/:id', async (req, res, next) => {
 /**
  * Upload rendered card image (base64 data URL) and store to /uploads.
  */
-router.post('/upload-image', verifyToken, async (req, res, next) => {
+router.post('/upload-image', verifyToken, citizenOnly, async (req, res, next) => {
   try {
     const { image_data } = req.body;
     if (!image_data || typeof image_data !== 'string') {
@@ -262,7 +266,7 @@ router.post('/upload-image', verifyToken, async (req, res, next) => {
  * Create a new buzz post (draft or published).
  * Body: { linked_type, linked_id, template, style, caption, cta_text?, image_url?, status? }
  */
-router.post('/', verifyToken, async (req, res, next) => {
+router.post('/', verifyToken, citizenOnly, async (req, res, next) => {
   try {
     const userId = Number(req.user.user_id);
     const { linked_type, linked_id, template, style, caption, cta_text, image_url, status = 'draft' } = req.body;
@@ -382,7 +386,7 @@ router.patch('/:id', verifyToken, async (req, res, next) => {
 
 // ─── 4. POST /buzz/:id/vote ───────────────────────────────────────────────────
 /** Toggle vote on a published post. Returns new state. */
-router.post('/:id/vote', verifyToken, async (req, res, next) => {
+router.post('/:id/vote', verifyToken, citizenOnly, async (req, res, next) => {
   try {
     const postId = Number(req.params.id);
     const userId = Number(req.user.user_id);
@@ -409,7 +413,7 @@ router.post('/:id/vote', verifyToken, async (req, res, next) => {
 
 // ─── 5. POST /buzz/:id/follow ─────────────────────────────────────────────────
 /** Toggle follow on a published post. Returns new state. */
-router.post('/:id/follow', verifyToken, async (req, res, next) => {
+router.post('/:id/follow', verifyToken, citizenOnly, async (req, res, next) => {
   try {
     const postId = Number(req.params.id);
     const userId = Number(req.user.user_id);
@@ -575,7 +579,7 @@ router.get('/:id/stats', verifyToken, async (req, res, next) => {
  * AI caption generation.
  * Body: { linked_type, linked_id, style, template? }
  */
-router.post('/captions', verifyToken, async (req, res, next) => {
+router.post('/captions', verifyToken, citizenOnly, async (req, res, next) => {
   try {
     let { linked_type, linked_id, style, template = 'meme' } = req.body;
 

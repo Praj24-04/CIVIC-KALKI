@@ -11,7 +11,7 @@
  * - Real data from GET /buzz endpoints
  */
 
-import { getUser } from '../auth.js';
+import { getUser, canBuzzParticipate } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { buzz } from '../api.js';
 import { toast, toastSuccess, toastError, toastWarning } from '../components/toast.js';
@@ -61,9 +61,11 @@ export async function renderCivicBuzz() {
         </div>
 
         <div class="ck-buzz-gallery-hero-right">
+          ${canBuzzParticipate() ? `
           <button type="button" class="btn btn-primary" id="ck-buzz-gallery-create-btn" style="border-radius:999px; font-weight:700; padding:10px 22px; display:inline-flex; align-items:center; gap:8px;">
             <span>+</span> Create Post
           </button>
+          ` : ''}
         </div>
       </div>
 
@@ -180,9 +182,11 @@ function renderEmptyState(container) {
           ? 'Follow posts on the trending or newest feed to track community updates and discussions.'
           : 'Be the first to turn a local issue or neighborhood initiative into a viral civic conversation!'}
       </p>
+      ${isFollowingTab || canBuzzParticipate() ? `
       <button type="button" class="btn btn-primary" id="ck-buzz-empty-action-btn" style="border-radius:999px; font-weight:700;">
         ${isFollowingTab ? 'Explore Trending Posts' : '+ Create First Post'}
       </button>
+      ` : ''}
     </div>
   `;
 
@@ -266,10 +270,12 @@ function renderGrid(container, posts) {
 
           <!-- Quick Action Buttons -->
           <div class="ck-buzz-card-bottom-bar">
+            ${canBuzzParticipate() ? `
             <button type="button" class="ck-buzz-quick-vote-btn ${post.has_voted ? 'active' : ''}" data-action="quick-vote" data-post-id="${post.id}">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
               <span>${post.has_voted ? 'Upvoted' : 'Upvote'}</span>
             </button>
+            ` : ''}
 
             <button type="button" class="ck-buzz-quick-share-btn" data-action="quick-share" data-post-id="${post.id}">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>

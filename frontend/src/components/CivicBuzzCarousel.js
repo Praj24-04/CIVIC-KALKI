@@ -11,6 +11,7 @@
  */
 
 import { buzz } from '../api.js';
+import { canBuzzParticipate } from '../auth.js';
 import { navigate } from '../router.js';
 import { toast, toastSuccess } from './toast.js';
 import { openBuzzCreateModal } from './CivicBuzzModal.js';
@@ -113,9 +114,11 @@ export async function initCivicBuzzCarousel() {
         <p style="font-size: 0.75rem; color: #64748b; margin: 4px 0 10px;">
           Be the first to turn a real civic problem into a viral conversation!
         </p>
+        ${canBuzzParticipate() ? `
         <button type="button" id="ck-buzz-first-create-btn" class="btn btn-primary btn-sm" style="border-radius: 999px; font-weight: 700; font-size: 0.76rem;">
           + Create First Post
         </button>
+        ` : ''}
       </div>
     `;
     document.getElementById('ck-buzz-first-create-btn')?.addEventListener('click', () => {
@@ -186,12 +189,14 @@ export async function initCivicBuzzCarousel() {
           </div>
           <div class="ck-buzz-actions-row" style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; gap:8px;">
             <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+              ${canBuzzParticipate() ? `
               <button type="button" class="btn btn-secondary btn-sm ck-buzz-action-btn" data-action="upvote-post" data-post-id="${post.id}" style="font-size:0.82rem; font-weight:600; padding:5px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px; height:30px; background:#f8fafc; border:1px solid #e2e8f0; color:#334155; cursor:pointer; white-space:nowrap;">
                 <span>↑</span> Upvote
               </button>
               <button type="button" class="btn btn-secondary btn-sm ck-buzz-action-btn" data-action="follow-post" data-post-id="${post.id}" style="font-size:0.82rem; font-weight:600; padding:5px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px; height:30px; background:#f8fafc; border:1px solid #e2e8f0; color:#334155; cursor:pointer; white-space:nowrap;">
                 <span>+</span> Follow
               </button>
+              ` : ''}
             </div>
             <a href="${post.linked_id ? `/entities/${post.linked_id}` : `/buzz/${post.id}`}" class="ck-buzz-view-issue-link" data-action="view-issue" style="font-size:0.85rem; color:var(--primary); font-weight:700; text-decoration:none; white-space:nowrap; flex-shrink:0;">
               View issue →

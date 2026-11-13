@@ -16,7 +16,7 @@
 
 import { buzz, entities as apiEntities } from '../api.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
-import { getUser } from '../auth.js';
+import { getUser, canBuzzParticipate } from '../auth.js';
 import { navigate } from '../router.js';
 import { openBuzzShareModal } from './CivicBuzzShare.js';
 import { renderCardHtml, renderTemplateToPng, DEFAULT_CIVIC_BG } from './CivicBuzzTemplates.js';
@@ -97,6 +97,7 @@ export async function openBuzzDetailModal(post, onUpdate = null) {
 
         <!-- Engagement Action Buttons Row -->
         <div class="ck-buzz-modal-actions-bar">
+          ${canBuzzParticipate() ? `
           <button type="button" class="ck-buzz-act-btn ${post.has_voted ? 'active' : ''}" id="ck-modal-upvote-btn">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
             <span id="ck-modal-vote-label">${post.has_voted ? 'Upvoted' : 'Upvote'}</span>
@@ -107,6 +108,7 @@ export async function openBuzzDetailModal(post, onUpdate = null) {
             <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
             <span id="ck-modal-follow-label">${post.is_following ? 'Following Status' : 'Follow Status'}</span>
           </button>
+          ` : ''}
 
           <button type="button" class="ck-buzz-act-btn" id="ck-modal-share-btn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>

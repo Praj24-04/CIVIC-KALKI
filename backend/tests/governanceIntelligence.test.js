@@ -5,6 +5,7 @@ const { createTestUser, cleanupAll } = require('./helpers/authHelper');
 
 describe('Governance Intelligence Layer', () => {
   let citizenHeaders;
+  const coordinatorHeaders = {};
   let directorHeaders;
   let adminHeaders;
   let entityTypeId;
@@ -18,6 +19,9 @@ describe('Governance Intelligence Layer', () => {
 
     const citizen = await createTestUser({ role: 'citizen' });
     citizenHeaders = citizen.headers;
+
+    coordinatorHeaders.coordinator_area = (await createTestUser({ role: 'coordinator_area', assignedArea: 'Kothrud' })).headers;
+    coordinatorHeaders.coordinator_general = (await createTestUser({ role: 'coordinator_general' })).headers;
 
     const donationType = await prisma.entityType.findFirst({
       where: { name: 'Donation Transaction' },
@@ -69,6 +73,18 @@ describe('Governance Intelligence Layer', () => {
         .send({ entity_type_id: entityTypeId });
       expect(res.statusCode).toBe(403);
     });
+    test.each(['coordinator_area', 'coordinator_general'])(
+      '%s gets 403 on both governance endpoints',
+      async (role) => {
+        const config = await request(app).get('/governance/config').set(coordinatorHeaders[role]);
+        expect(config.statusCode).toBe(403);
+        const analyze = await request(app)
+          .post('/governance/analyze')
+          .set(coordinatorHeaders[role])
+          .send({ entity_type_id: entityTypeId });
+        expect(analyze.statusCode).toBe(403);
+      }
+    );
   });
 
   describe('Deterministic Engine & AI Decision Execution', () => {

@@ -613,4 +613,92 @@ describe('Civic Buzz Feature Suite', () => {
       expect(myDraft.status).toBe('draft');
     });
   });
+
+  // ─── Role gating: only citizens create, upvote and follow ──────────────────
+  describe('Role gating', () => {
+    let gatedPostId;
+    const staff = {};
+
+    beforeAll(async () => {
+      staff.coordinator_area = await createTestUser({ role: 'coordinator_area', assignedArea: 'Kothrud' });
+      staff.coordinator_general = await createTestUser({ role: 'coordinator_general' });
+      staff.director = await createTestUser({ role: 'director' });
+      staff.admin = adminUser;
+      const post = await prisma.buzzPost.create({
+        data: {
+          author_id: citizen1.user.user_id,
+          linked_type: 'issue',
+          linked_id: testEntity.entity_id,
+          template: 'awareness',
+          style: 'informative',
+          caption: 'Role gating post.',
+          status: 'published',
+        },
+      });
+      gatedPostId = post.id;
+      createdPostIds.push(gatedPostId);
+    });
+
+    const draftBody = () => ({
+      linked_type: 'issue',
+      linked_id: testEntity.entity_id,
+      template: 'awareness',
+      style: 'informative',
+      caption: 'Role gating draft.',
+      status: 'draft',
+    });
+
+    it.each(['coordinator_area', 'coordinator_general', 'director', 'admin'])(
+      '%s gets 403 creating, upvoting and following',
+      async (role) => {
+        const { headers } = staff[role];
+        const before = await prisma.buzzPost.count();
+
+        const create = await request(app).post('/buzz').set(headers).send(draftBody());
+        expect(create.status).toBe(403);
+        const vote = await request(app).post(`/buzz/${gatedPostId}/vote`).set(headers);
+        expect(vote.status).toBe(403);
+        const follow = await request(app).post(`/buzz/${gatedPostId}/follow`).set(headers);
+        expect(follow.status).toBe(403);
+
+        expect(await prisma.buzzPost.count()).toBe(before);
+        expect(await prisma.buzzVote.count({ where: { post_id: gatedPostId, user_id: staff[role].user.user_id } })).toBe(0);
+        expect(await prisma.buzzFollow.count({ where: { post_id: gatedPostId, user_id: staff[role].user.user_id } })).toBe(0);
+      }
+    );
+
+    it('citizen can still create, upvote and follow', async () => {
+      const create = await request(app).post('/buzz').set(citizen2.headers).send(draftBody());
+      expect(create.status).toBe(201);
+      createdPostIds.push(create.body.data.id);
+
+      const vote = await request(app).post(`/buzz/${gatedPostId}/vote`).set(citizen2.headers);
+      expect(vote.status).toBe(200);
+      expect(vote.body.voted).toBe(true);
+
+      const follow = await request(app).post(`/buzz/${gatedPostId}/follow`).set(citizen2.headers);
+      expect(follow.status).toBe(200);
+      expect(follow.body.following).toBe(true);
+    });
+
+    it('director keeps the impact view', async () => {
+      const res = await request(app).get(`/buzz/${gatedPostId}/stats`).set(staff.director.headers);
+      expect(res.status).toBe(200);
+    });
+
+    it('coordinators and admin keep moderation: impact view and Report, which hides the post', async () => {
+      const stats = await request(app).get(`/buzz/${gatedPostId}/stats`).set(staff.coordinator_area.headers);
+      expect(stats.status).toBe(200);
+
+      for (const role of ['coordinator_area', 'coordinator_general', 'admin']) {
+        const res = await request(app)
+          .post(`/buzz/${gatedPostId}/report`)
+          .set(staff[role].headers)
+          .send({ reason: 'Moderation test' });
+        expect(res.status).toBe(200);
+      }
+      const post = await prisma.buzzPost.findUnique({ where: { id: gatedPostId } });
+      expect(post.status).toBe('hidden');
+    });
+  });
 });
