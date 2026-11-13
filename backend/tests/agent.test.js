@@ -44,6 +44,12 @@ describe('Civic assistant', () => {
   const sid = () => `assistant-test-${Date.now()}-${seq += 1}`;
   const say = (id, text, who = citizenUser) => continueFormFilling(id, text, who);
   const recordsNamed = (fragment) => prisma.entity.findMany({ where: { owner_user_id: citizen.user.user_id, name: { contains: fragment } } });
+  // The exact spot and a photo are asked for once each; these flows skip them.
+  const skipExtras = async (id, r) => {
+    let out = r;
+    while (out.type === 'question' && ['__place', '__photo'].includes(_sessions.get(id)?.asked)) out = await say(id, 'skip');
+    return out;
+  };
 
   beforeAll(async () => {
     for (const k of ['GEMINI_API_KEY', 'AI_TIMEOUT_MS']) saved[k] = process.env[k];
@@ -87,7 +93,7 @@ describe('Civic assistant', () => {
 
       r = await say(id, 'infrastructure'); expect(r.type).toBe('question'); asked.push(r.text);
       r = await say(id, 'severe'); expect(r.type).toBe('question'); asked.push(r.text);
-      r = await say(id, WARD);
+      r = await skipExtras(id, await say(id, WARD));
 
       // One question per turn, none repeated, none about things already known.
       expect(new Set(asked).size).toBe(asked.length);
@@ -144,6 +150,7 @@ describe('Civic assistant', () => {
       const post = (message) => request(app).post('/agent/chat').set(citizen.headers).send({ sessionId: id, message });
       let res;
       for (const t of ['The streetlight on my lane is broken and it is dark at night', 'safety', 'moderate', WARD]) res = await post(t);
+      while (res.body.data.type === 'question' && ['__place', '__photo'].includes(_sessions.get(id)?.asked)) res = await post('skip');
       expect(res.body.data.type).toBe('confirm');
       res = await post('yes');
       expect(res.status).toBe(200);
@@ -167,7 +174,7 @@ describe('Civic assistant', () => {
       expect(r.text).toMatch(/severity is now Critical/i);
       expect(r.text).toMatch(/area/i); // carries on with what is still missing
 
-      r = await say(id, WARD);
+      r = await skipExtras(id, await say(id, WARD));
       expect(r.type).toBe('confirm');
       expect(r.text).toMatch(/Critical/);
 
@@ -186,8 +193,10 @@ describe('Civic assistant', () => {
 
     test('"no" at the summary asks what to change; "cancel" drops it', async () => {
       const id = sid();
-      for (const t of ['Water is leaking from a pipe on the main road', 'water supply', 'severe', WARD]) await say(id, t);
-      let r = await say(id, 'no');
+      let r;
+      for (const t of ['Water is leaking from a pipe on the main road', 'water supply', 'severe', WARD]) r = await say(id, t);
+      await skipExtras(id, r);
+      r = await say(id, 'no');
       expect(r.type).toBe('question');
       expect(r.text).toMatch(/what should I change/i);
       r = await say(id, 'cancel');
@@ -274,9 +283,11 @@ describe('Civic assistant', () => {
   describe('when sending fails', () => {
     test('says so honestly, leaves nothing half-saved, and a second yes works', async () => {
       const id = sid();
-      for (const t of ['The drain on our road is blocked and overflowing', 'sanitation', 'severe', WARD]) await say(id, t);
+      let r;
+      for (const t of ['The drain on our road is blocked and overflowing', 'sanitation', 'severe', WARD]) r = await say(id, t);
+      await skipExtras(id, r);
       mockFail.next = true;
-      let r = await say(id, 'yes');
+      r = await say(id, 'yes');
       expect(r.type).toBe('error');
       expect(r.text).toMatch(/could not send/i);
       expect(r.text).toMatch(/nothing was saved/i);
@@ -367,8 +378,90 @@ describe('Civic assistant', () => {
       expect(r.text).toMatch(/severity/i); // the only thing still unknown
       mockGenerate.mockResolvedValueOnce(reply({ intent: 'answer', values: { severity: 'Severe' }, area: null, place: null }));
       r = await say(id, 'it is pretty bad, cars keep swerving');
+      // The spot is known ("outside my building"), so only the photo is asked for.
+      expect(r.type).toBe('question');
+      expect(r.text).toMatch(/photo/i);
+      r = await say(id, 'no photo');
       expect(r.type).toBe('confirm');
       expect(_sessions.get(id).draft).toMatchObject({ category: 'Infrastructure', severity: 'Severe' });
+    });
+
+    // One message that names the service, category, severity and area, but no spot.
+    const streetlight = () => mockGenerate
+      .mockResolvedValueOnce(reply({ intent: 'file', service_id: grievance.entity_type_id, candidate_ids: [] }))
+      .mockResolvedValueOnce(reply({ intent: 'answer', values: { category: 'Safety', severity: 'Moderate' }, area: WARD, place: null }));
+
+    test('asks where exactly, then for a photo: once each, and both can be skipped or answered', async () => {
+      const id = sid();
+      streetlight();
+      let r = await say(id, 'The streetlight is broken and the lane is dark at night');
+      expect(r.type).toBe('question');
+      expect(r.text).toMatch(/where exactly/i);
+      expect(r.options.map((o) => o.value)).toEqual(['__share_location', 'skip']);
+
+      r = await say(id, 'Near the old temple on Main Road');
+      expect(r.type).toBe('question');
+      expect(r.text).toMatch(/photo/i);
+      expect(r.options.map((o) => o.value)).toEqual(['__attach_photo', 'no photo']);
+
+      r = await say(id, 'no photo');
+      expect(r.type).toBe('confirm');
+      expect(r.text).toMatch(/Near the old temple on Main Road/);
+      // Neither is asked again, even after a change at the summary.
+      expect(_sessions.get(id)).toMatchObject({ askedPlace: true, askedPhoto: true });
+    });
+
+    test('"use where I am" keeps the shared map pin; "skip" leaves the spot out', async () => {
+      const id = sid();
+      streetlight();
+      await say(id, 'The streetlight is broken and the lane is dark at night');
+      let r = await say(id, "[User location: Pune (18.5204°N, 73.8567°E)] It's right where I am");
+      expect(r.text).toMatch(/photo/i);
+      expect(_sessions.get(id).coords).toEqual({ latitude: 18.5204, longitude: 73.8567 });
+
+      const other = sid();
+      streetlight();
+      await say(other, 'The streetlight is broken and the lane is dark at night');
+      r = await say(other, 'skip');
+      expect(r.text).toMatch(/photo/i);
+      expect(_sessions.get(other).place).toBeNull();
+    });
+
+    test('AI may reword a question, labelled as AI; the question itself stays the same', async () => {
+      const id = sid();
+      streetlight();
+      const worded = 'Sorry to hear the streetlight is out. Where exactly is it, is there a landmark or street name nearby?';
+      mockGenerate.mockResolvedValueOnce(reply({ text: worded }));
+      const r = await say(id, 'The streetlight is broken and the lane is dark at night');
+      expect(r.voice).toBe('ai');
+      expect(r.text).toBe(worded);
+      expect(_sessions.get(id).asked).toBe('__place');
+      expect(r.options.map((o) => o.value)).toEqual(['__share_location', 'skip']);
+    });
+
+    test.each([
+      ['a promise', 'We will fix this within 2 days. Where exactly is it?'],
+      ['system words', 'Thanks, I have updated the form. Where exactly is it?'],
+      ['a different question', 'Thanks for telling me. How severe is it?'],
+      ['no question', 'Thanks, noted the broken streetlight.'],
+    ])('AI wording with %s is thrown away and the rule-written question is used', async (_label, bad) => {
+      const id = sid();
+      streetlight();
+      mockGenerate.mockResolvedValueOnce(reply({ text: bad }));
+      const r = await say(id, 'The streetlight is broken and the lane is dark at night');
+      expect(r.voice).toBe('rules');
+      expect(r.text).toMatch(/Where exactly is it in/);
+    });
+
+    test.each([
+      ['plain rewording', 'Thanks. Where exactly is it?', '', true],
+      ['an invented "no one was hurt"', 'Glad no one was hurt. Where exactly is it?', 'two scooters fell', false],
+      ['"hurt" when the resident said it', 'Sorry someone got hurt. Where exactly is it?', 'my neighbour got hurt', true],
+      ['a judgement of seriousness', 'That sounds dangerous. Where exactly is it?', 'a pothole', false],
+      ['a number nobody said', 'Thanks. Where exactly is it, near house 42?', 'a pothole', false],
+    ])('wording check: %s', (_label, text, said, ok) => {
+      const { acceptable } = require('../services/agentVoice');
+      expect(acceptable(text, { subjectWords: ['where'], knownText: said, citizenSaid: said })).toBe(ok);
     });
 
     test('if the AI does not answer, the conversation carries on with rules', async () => {

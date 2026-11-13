@@ -89,7 +89,8 @@ function renderUserBubble(text, attachment = null) {
   `;
 }
 
-function renderAgentBubble(text) {
+/** `voice` is 'ai' when the wording (not the question) was written by AI. */
+function renderAgentBubble(text, voice = null) {
   return `
     <div class="agent-msg-row agent-msg-agent">
       <div class="agent-bubble-avatar" aria-hidden="true">
@@ -98,7 +99,8 @@ function renderAgentBubble(text) {
             d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
         </svg>
       </div>
-      <div class="agent-bubble agent-bubble-agent">${renderMarkdownLite(text)}</div>
+      <div class="agent-bubble agent-bubble-agent">${renderMarkdownLite(text)}${voice === 'ai'
+        ? '<div class="assist-ai-note" title="The question is set by rules; AI only worded it.">AI-worded</div>' : ''}</div>
     </div>
   `;
 }
@@ -358,7 +360,7 @@ async function sendMessage(message, explicitFile = null) {
       }, 50);
     } else {
       // question, status, guidance, unclear, cancelled, error
-      appendHtml(renderAgentBubble(data.text || 'Something went wrong. Please try again.') + renderQuickReplies(data.options));
+      appendHtml(renderAgentBubble(data.text || 'Something went wrong. Please try again.', data.voice) + renderQuickReplies(data.options));
     }
   } catch (err) {
     removeThinking();
@@ -687,9 +689,28 @@ export async function renderAgentChat(params = {}, searchParams = null) {
   });
 
   // A tapped suggestion is sent as the answer.
-  getThread()?.addEventListener('click', (e) => {
+  // Two chips act on the device instead: share the location, or pick a photo.
+  getThread()?.addEventListener('click', async (e) => {
     const chip = e.target.closest('.assist-chip');
-    if (chip) sendMessage(chip.getAttribute('data-reply'));
+    if (!chip) return;
+    const reply = chip.getAttribute('data-reply');
+    if (reply === '__attach_photo') {
+      fileInput?.click();
+      return;
+    }
+    if (reply === '__share_location') {
+      if (!getStoredLocation()) {
+        try {
+          _showLocStatus(await requestLocation());
+        } catch {
+          appendHtml(renderAgentBubble('I could not get your location. You can type a landmark or street name instead.'));
+          return;
+        }
+      }
+      sendMessage("It's right where I am");
+      return;
+    }
+    sendMessage(reply);
   });
 
   // ── If launched from ChatBar — send first message immediately ──────────────

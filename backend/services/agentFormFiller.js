@@ -24,6 +24,7 @@
 const fs = require('fs');
 const prisma = require('../db');
 const understanding = require('./agentIntentRouter');
+const voice = require('./agentVoice');
 const { validateWorkflowTransition, executeWorkflowTransition } = require('./workflowEngine');
 const { firstWorkflowStatus } = require('./ruleEngine');
 
@@ -60,7 +61,9 @@ function newSession(userId, userRole) {
     ward: null,               // { id, name }
     place: null,              // free-text landmark
     coords: null,             // { latitude, longitude } from the device, if shared
-    asked: null,              // key of the question just asked ('__ward' for the area)
+    askedPlace: false,        // the exact spot is asked once; the citizen may skip it
+    askedPhoto: false,        // a photo is asked for once; the citizen may skip it
+    asked: null,              // key of the question just asked ('__ward', '__place', '__photo')
     said: [],                 // what the citizen has said (for context)
     pendingFiles: [],
     lastAiFailure: 0,
@@ -268,11 +271,27 @@ function isActive(field, draft, fields) {
   return other ? String(draft[other.key] ?? other.defaultValue ?? '') === String(field.dependsOn.value) : true;
 }
 
-/** What still has to be asked, in form order. A ward is always needed. */
+const PHOTO_FIELD = /photo|image|picture|evidence|pic/i;
+
+/** The service's photo field, if it takes one. */
+function photoField(service) {
+  return service.fileFields.find((f) => PHOTO_FIELD.test(f.key) || PHOTO_FIELD.test(f.label)) || null;
+}
+
+/**
+ * What still has to be asked, in form order. A ward is always needed. The exact
+ * spot and a photo are asked for once each (the citizen may skip them): they are
+ * what a field team needs to find and judge the problem.
+ */
 function missing(session) {
   const { fields } = session.service;
   const out = fields.filter((f) => f.mandatory && isActive(f, session.draft, fields) && session.draft[f.key] === undefined);
-  return { fields: out, ward: !session.ward };
+  return {
+    fields: out,
+    ward: !session.ward,
+    place: !session.place && !session.askedPlace,
+    photo: Boolean(photoField(session.service)) && !session.pendingFiles.length && !session.askedPhoto,
+  };
 }
 
 // ── Plain-language wording ───────────────────────────────────────────────────
@@ -291,9 +310,9 @@ function quickReplies(values) {
 
 function questionFor(field) {
   if (field.type === 'choice') return `Which ${field.plain} fits best: ${listOf(field.options)}?`;
-  if (field.type === 'date') return `What is the ${field.plain}? You can say "today", "yesterday" or give a date.`;
+  if (field.type === 'date') return `When was this? You can say "today", "yesterday" or give a date.`;
   if (field.type === 'number') return `What is the ${field.plain}? A number is fine.`;
-  if (field.type === 'longtext') return `Can you tell me about the ${field.plain}? A sentence or two is enough.`;
+  if (field.type === 'longtext') return `Could you tell me a little more about the ${field.plain}? A sentence or two is enough.`;
   return `What is the ${field.plain}?`;
 }
 
@@ -303,6 +322,20 @@ function wardQuestion(wards) {
     ? `Which area is this in: ${listOf(wards.map((w) => w.name))}?`
     : 'Which area or ward is this in?';
 }
+
+function placeQuestion(session) {
+  return `Where exactly is it${session.ward ? ` in ${session.ward.name}` : ''}? A landmark or street name helps the team find the spot.`;
+}
+
+const PHOTO_QUESTION = 'Do you have a photo of it? A picture helps the team see the problem. You can add one now, or say "no photo".';
+
+// Words a reworded question must still contain to be about the same thing.
+const PLACE_WORDS = ['where', 'landmark', 'street', 'spot', 'location', 'exactly', 'road', 'near'];
+const PHOTO_WORDS = ['photo', 'picture', 'image'];
+const PLACE_CHIPS = [{ label: '📍 Use where I am', value: '__share_location' }, { label: 'Skip', value: 'skip' }];
+const PHOTO_CHIPS = [{ label: '📷 Add a photo', value: '__attach_photo' }, { label: 'No photo', value: 'no photo' }];
+const SKIP = /^(skip|no|nope|none|nothing|no photo|no photos|no picture|not now|later|i don t have (one|any|a photo)|dont have (one|any)|don t have (one|any)|i don t know|not sure|n a)$/;
+const HERE = /(__share_location|share location|where i am|right here|it s here|this spot|my location|current location)/;
 
 const STATUS_WORDS = {
   draft: 'saved, not sent yet',
@@ -326,6 +359,7 @@ function titleFrom(session) {
 function summaryOf(session) {
   const rows = [{ label: 'What', value: titleFrom(session) }];
   rows.push({ label: 'Where', value: [session.ward?.name, session.place].filter(Boolean).join(', ') });
+  if (session.coords) rows.push({ label: 'Map pin', value: 'Your shared location' });
   for (const f of session.service.fields) {
     if (session.draft[f.key] === undefined) continue;
     const label = PERSON_NAME.test(f.key) || PERSON_NAME.test(f.label) ? 'Your name' : f.plain.charAt(0).toUpperCase() + f.plain.slice(1);
@@ -507,20 +541,38 @@ function absorb(session, values) {
   return { accepted, refused };
 }
 
-/** Ask the next thing that is missing, or move to confirmation. */
+/**
+ * Ask the next thing that is missing, or move to confirmation.
+ * A question carries `_ask` (what it is about, its words and choices) so its
+ * wording can be made more human afterwards; the question itself never changes.
+ */
 function nextStep(session, wards, lead = '') {
   const gaps = missing(session);
   const say = (text) => (lead ? `${lead} ${text}` : text);
+  const ask = (key, text, options, subjectWords, mustInclude = []) => {
+    session.phase = 'collecting';
+    session.asked = key;
+    return { type: 'question', text: say(text), options, _ask: { subjectWords, mustInclude } };
+  };
   if (gaps.fields.length) {
     const f = gaps.fields[0];
-    session.phase = 'collecting';
-    session.asked = f.key;
-    return { type: 'question', text: say(questionFor(f)), options: quickReplies(f.options) };
+    const words = [...understanding.tokens(f.plain), f.plain, ...(f.type === 'date' ? ['when'] : [])];
+    // A long list of choices is not reworded: it stays exactly as the engine wrote it.
+    if (f.options.length > 8) return ask(f.key, questionFor(f), quickReplies(f.options), []);
+    return ask(f.key, questionFor(f), quickReplies(f.options), words, f.options);
   }
   if (gaps.ward) {
-    session.phase = 'collecting';
-    session.asked = '__ward';
-    return { type: 'question', text: say(wardQuestion(wards)), options: quickReplies(wards.map((w) => w.name)) };
+    const names = wards.map((w) => w.name);
+    if (names.length > 8) return ask('__ward', wardQuestion(wards), quickReplies(names), []);
+    return ask('__ward', wardQuestion(wards), quickReplies(names), ['area', 'ward', ...names], names);
+  }
+  if (gaps.place) {
+    session.askedPlace = true;
+    return ask('__place', placeQuestion(session), PLACE_CHIPS, PLACE_WORDS);
+  }
+  if (gaps.photo) {
+    session.askedPhoto = true;
+    return ask('__photo', PHOTO_QUESTION, PHOTO_CHIPS, PHOTO_WORDS);
   }
   return confirmReply(session, lead ? `${lead} Here is what I will send:` : 'Here is what I will send:');
 }
@@ -552,7 +604,7 @@ async function startService(session, svc, user, wards, firstMessage) {
   absorb(session, values);
   if (read.ward) session.ward = read.ward;
   if (read.place) session.place = read.place;
-  return nextStep(session, wards, 'Got it.');
+  return nextStep(session, wards, 'Thanks for telling me, I can help you report this.');
 }
 
 /**
@@ -564,6 +616,30 @@ async function startService(session, svc, user, wards, firstMessage) {
  * @param {object|null} attachedFile
  */
 async function continueFormFilling(sessionId, userMessage, user, _unused = [], attachedFile = null) {
+  const reply = await conversationTurn(sessionId, userMessage, user, attachedFile);
+  const ask = reply && reply._ask;
+  if (reply) delete reply._ask;
+  if (!reply || reply.type !== 'question') return reply;
+
+  // The question is fixed; only its wording may be made more human (AI, checked).
+  const session = sessions.get(sessionId);
+  if (!ask || !session || !session.service || reply.invalid || !ask.subjectWords.length) return { ...reply, voice: 'rules' };
+  const said = String(userMessage || '').replace(/\[(?:User )?location:[^\]]*\]/gi, '').trim();
+  const worded = await voice.speak({
+    reply,
+    citizenSaid: /^__/.test(said) ? '' : said,
+    serviceLabel: session.service.label,
+    known: summaryOf(session).filter((r) => r.label !== 'Your name'),
+    subjectWords: ask.subjectWords,
+    mustInclude: ask.mustInclude,
+    firstName: String(user.name || '').split(/\s+/)[0] || null,
+    useAi: useAi(session),
+  });
+  noteAi(session, worded);
+  return { ...reply, text: worded.text, voice: worded.voice };
+}
+
+async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   let session = getSession(sessionId, user.user_id, user.role);
   if (session.phase === 'done') {
     clearSession(sessionId);
@@ -674,6 +750,27 @@ async function continueFormFilling(sessionId, userMessage, user, _unused = [], a
   if (onlyAttachment) return nextStep(session, wards, attachedNote);
 
   const asked = session.asked;
+
+  // ── Answers to "where exactly?" and "any photo?" ──────────────────────────
+  if (asked === '__place' || asked === '__photo') {
+    const n = understanding.normalize(message);
+    if (asked === '__place') {
+      if (SKIP.test(n)) return nextStep(session, wards, 'No problem.');
+      if (HERE.test(message.toLowerCase()) || HERE.test(n)) {
+        return nextStep(session, wards, session.coords ? 'Thanks, I have your location.' : 'I could not get your location, so I will leave the exact spot out.');
+      }
+      if (understanding.tokens(message).length) {
+        const ward = understanding.findWard(message, wards);
+        if (ward && (!session.ward || ward.id !== session.ward.id)) session.ward = ward;
+        session.place = message.slice(0, 120);
+        return nextStep(session, wards, 'Thanks.');
+      }
+    } else if (SKIP.test(n)) {
+      return nextStep(session, wards, 'That is fine.');
+    }
+    // Anything else is read as an ordinary message below.
+  }
+
   const read = await understanding.readDetails({
     message,
     fields: session.service.fields,

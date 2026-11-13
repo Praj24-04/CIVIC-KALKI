@@ -609,6 +609,7 @@ a.ws-item, a.ws-item:hover, a.ws-action, a.ws-action:hover, a.ws-fact, a.ws-fact
    Civic assistant (chat page and home card)
    ============================================================ */
 .assist-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 10px 42px; }
+.assist-ai-note { margin-top: 4px; font-size: 10px; letter-spacing: .02em; color: var(--text-muted); opacity: .85; }
 .assist-chip {
   padding: 7px 14px; border-radius: var(--radius-pill);
   border: 1px solid var(--primary-border); background: var(--primary-light); color: var(--primary);
