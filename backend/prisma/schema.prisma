@@ -318,6 +318,7 @@ model AuditLog {
   new_status    String?
   datetime      DateTime @default(now())
   reason        String?
+  changes       Json?    // field-level { field: { old, new } } for data writes
 
   // Relations to parent
   entity    Entity @relation(fields: [entity_id], references: [entity_id])

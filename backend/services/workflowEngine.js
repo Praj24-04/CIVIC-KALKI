@@ -29,6 +29,81 @@ async function getWorkflowMasterRules(entityTypeId) {
   });
 }
 
+const STAFF_ROLES = ['admin', 'director', 'coordinator_area', 'coordinator_general'];
+const TERMINAL_STATUSES = ['approved', 'rejected', 'deleted'];
+const FALLBACK_TARGETS = ['submitted', 'coordinator_approved', 'approved', 'rejected'];
+
+/**
+ * The area scope of a coordinator: an area coordinator handles their own ward,
+ * a general coordinator the records with no ward. Returns a reason when the
+ * record is outside the actor's scope, null otherwise (other roles: no area limit).
+ */
+function areaScopeError(entity, actorRole, actorAssignedArea) {
+  const role = String(actorRole || '').trim().toLowerCase();
+  const entityArea = String(entity.area || '').trim();
+  if (role === 'coordinator_area') {
+    const assignedArea = String(actorAssignedArea || '').trim();
+    if (!entityArea || entityArea !== assignedArea) {
+      return `Area Coordinator assigned to "${assignedArea}" cannot review entity in area "${entityArea || 'Unassigned'}".`;
+    }
+  } else if (role === 'coordinator_general') {
+    if (entityArea && entityArea !== 'Unassigned') {
+      return 'General Coordinator can only handle entities in unassigned areas.';
+    }
+  }
+  return null;
+}
+
+/**
+ * Who may change a record's own data (fields, values, files) or withdraw it.
+ * One rule, used by every write route and by the "deleted" transition:
+ *   - staff must be within their area scope; other users must own the record (403);
+ *   - approved, rejected and deleted records are locked for everyone (409);
+ *   - a draft may be changed by its owner or by in-scope staff;
+ *   - past draft, only while the workflow gives this actor a move from the
+ *     record's current status (it is their turn); otherwise locked (409).
+ * Returns { allowed, code, reason }.
+ */
+async function canActorWrite({ entity, actorRole, actorUserId, actorAssignedArea }) {
+  const status = String(entity.status || 'draft').trim().toLowerCase();
+  const role = String(actorRole || '').trim().toLowerCase();
+
+  const isStaff = STAFF_ROLES.includes(role);
+  const isOwner = entity.owner_user_id !== null && entity.owner_user_id !== undefined
+    && Number(entity.owner_user_id) === Number(actorUserId);
+
+  if (isStaff) {
+    const scopeError = areaScopeError(entity, role, actorAssignedArea);
+    if (scopeError) return { allowed: false, code: 403, reason: scopeError };
+  } else if (!isOwner) {
+    return { allowed: false, code: 403, reason: 'You do not have permission to modify this entity.' };
+  }
+
+  if (TERMINAL_STATUSES.includes(status)) {
+    return { allowed: false, code: 409, reason: `This record is "${status}" and can no longer be changed.` };
+  }
+
+  if (status === 'draft') return { allowed: true };
+
+  const rules = await getWorkflowMasterRules(entity.entity_type_id);
+  const targets = rules.length > 0
+    ? [...new Set(rules
+      .filter((r) => String(r.trigger || '').trim().toLowerCase() === status)
+      .map((r) => String(r.action || '').trim().toLowerCase()))]
+    : FALLBACK_TARGETS;
+
+  for (const target of targets) {
+    if (target === 'deleted') continue;
+    const v = await validateWorkflowTransition({ entity, targetStatus: target, actorRole: role, actorUserId, actorAssignedArea });
+    if (v.allowed) return { allowed: true };
+  }
+  return {
+    allowed: false,
+    code: 409,
+    reason: `This record is "${status}" and is locked for you; it can change only through its workflow.`,
+  };
+}
+
 /**
  * Check if a workflow transition is permitted by metadata or fallback rules.
  */
@@ -48,6 +123,13 @@ async function validateWorkflowTransition({
 
   if (currentStatus === 'approved' || currentStatus === 'rejected') {
     return { allowed: false, reason: `Entity is in terminal state "${currentStatus}".` };
+  }
+
+  // Deleting is a workflow move: whoever may still change the record may withdraw
+  // it. A module may also grant it explicitly in WorkflowMaster (checked below).
+  if (normalizedTarget === 'deleted') {
+    const write = await canActorWrite({ entity, actorRole, actorUserId, actorAssignedArea });
+    if (write.allowed) return { allowed: true, source: 'write-rule' };
   }
 
   // Fetch WorkflowMaster rules for entity's EntityType
@@ -80,17 +162,9 @@ async function validateWorkflowTransition({
       if (entity.owner_user_id && Number(actorUserId) !== Number(entity.owner_user_id)) {
         return { allowed: false, reason: 'Only the entity owner can perform this citizen transition.', source: 'metadata' };
       }
-    } else if (actorRole === 'coordinator_area') {
-      const entityArea = String(entity.area || '').trim();
-      const assignedArea = String(actorAssignedArea || '').trim();
-      if (!entityArea || entityArea !== assignedArea) {
-        return { allowed: false, reason: `Area Coordinator assigned to "${assignedArea}" cannot review entity in area "${entityArea || 'Unassigned'}".`, source: 'metadata' };
-      }
-    } else if (actorRole === 'coordinator_general') {
-      const entityArea = String(entity.area || '').trim();
-      if (entityArea && entityArea !== 'Unassigned') {
-        return { allowed: false, reason: 'General Coordinator can only handle entities in unassigned areas.', source: 'metadata' };
-      }
+    } else {
+      const scopeError = areaScopeError(entity, actorRole, actorAssignedArea);
+      if (scopeError) return { allowed: false, reason: scopeError, source: 'metadata' };
     }
 
     return { allowed: true, rule: matchingRule, source: 'metadata' };
@@ -245,4 +319,6 @@ module.exports = {
   getWorkflowMasterRules,
   validateWorkflowTransition,
   executeWorkflowTransition,
+  canActorWrite,
+  areaScopeError,
 };

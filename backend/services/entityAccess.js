@@ -3,13 +3,20 @@
  *
  * Shared by the entity, value and file routes so the rule is written once:
  *   - the caller must be signed in;
- *   - the owner may modify their entity;
- *   - staff roles may modify any entity;
+ *   - the owner may modify their entity, staff only within their area scope;
  *   - an entity with no owner (for example one created by the rule engine)
- *     may be modified by staff only.
+ *     may be modified by staff only;
+ *   - the record's status may lock it (see canActorWrite in workflowEngine).
  *
  * Status changes are not covered here: they go through the workflow engine.
+ *
+ * assertCanWriteEntity is the write guard every modifying route uses (edit,
+ * values, files, delete): area scope, status lock and ownership, decided by the
+ * workflow engine's canActorWrite. writeAudit records each change with its old
+ * and new values, inside the same transaction as the change.
  */
+
+const { canActorWrite } = require('./workflowEngine');
 
 const STAFF_ROLES = ['admin', 'director', 'coordinator_area', 'coordinator_general'];
 
@@ -17,22 +24,6 @@ function httpError(message, statusCode) {
   const err = new Error(message);
   err.statusCode = statusCode;
   return err;
-}
-
-/**
- * Throws 401 or 403 if `user` may not modify `entity`; returns true otherwise.
- */
-function assertCanModifyEntity(entity, user) {
-  if (!user || !user.user_id) {
-    throw httpError('Authentication is required to modify this entity.', 401);
-  }
-  if (STAFF_ROLES.includes(user.role)) return true;
-
-  const ownerId = entity ? entity.owner_user_id : null;
-  if (ownerId !== null && ownerId !== undefined && Number(ownerId) === Number(user.user_id)) {
-    return true;
-  }
-  throw httpError('You do not have permission to modify this entity.', 403);
 }
 
 // The one status at which a record is public. Compared the way the location
@@ -123,8 +114,58 @@ function ownerSelectFor(user) {
   return { user_id: true, name: true, email: Boolean(user && STAFF_ROLES.includes(user.role)) };
 }
 
+/**
+ * The write guard. Throws 401 (not signed in), 403 (not the owner, or outside the
+ * caller's area scope) or 409 (the record's status locks it for this caller).
+ */
+async function assertCanWriteEntity(entity, user) {
+  if (!user || !user.user_id) {
+    throw httpError('Authentication is required to modify this entity.', 401);
+  }
+  const result = await canActorWrite({
+    entity,
+    actorRole: user.role,
+    actorUserId: user.user_id,
+    actorAssignedArea: user.assignedArea || user.assigned_area || null,
+  });
+  if (!result.allowed) throw httpError(result.reason, result.code);
+  return true;
+}
+
+/**
+ * { field: { old, new } } for every key in `after` whose value differs from `before`.
+ */
+function diffChanges(before, after) {
+  const changes = {};
+  for (const key of Object.keys(after)) {
+    const oldValue = before[key] === undefined ? null : before[key];
+    const newValue = after[key] === undefined ? null : after[key];
+    if (String(oldValue) !== String(newValue)) changes[key] = { old: oldValue, new: newValue };
+  }
+  return changes;
+}
+
+/**
+ * Writes one audit row for a data change. Pass the transaction client so the row
+ * commits or rolls back with the change itself.
+ */
+function writeAudit(tx, { entityId, user, action, changes, reason }) {
+  return tx.auditLog.create({
+    data: {
+      entity_id: Number(entityId),
+      actor_user_id: Number(user.user_id),
+      user: user.name || null,
+      action,
+      changes: changes || {},
+      reason: reason || null,
+    },
+  });
+}
+
 module.exports = {
-  assertCanModifyEntity,
+  assertCanWriteEntity,
+  diffChanges,
+  writeAudit,
   assertCanReadEntityData,
   assertOwnerOrStaff,
   viewerLevel,

@@ -16,7 +16,7 @@ const router = express.Router({ mergeParams: true });
 const prisma = require('../db');
 const { canViewLocation } = require('../services/locationVisibility');
 const { verifyToken } = require('../middleware/auth');
-const { assertCanModifyEntity, assertCanReadEntityData, publicValues } = require('../services/entityAccess');
+const { assertCanWriteEntity, writeAudit, assertCanReadEntityData, publicValues } = require('../services/entityAccess');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const MAX_VALUES_PER_REQUEST = 200;
@@ -114,6 +114,21 @@ function validateValues(values, paramMap) {
   return { parsed, errors };
 }
 
+/**
+ * Audit payload for a values write: { <field_key or parameter_id>: { old, new } },
+ * only for values that actually changed.
+ */
+function valueChanges(parsed, oldValues, paramMap) {
+  const changes = {};
+  for (const item of parsed) {
+    const oldValue = oldValues.has(item.parameter_id) ? oldValues.get(item.parameter_id) : null;
+    if (oldValue === item.value) continue;
+    const key = paramMap.get(item.parameter_id)?.field_key || `parameter_${item.parameter_id}`;
+    changes[key] = { parameter_id: item.parameter_id, old: oldValue, new: item.value };
+  }
+  return changes;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /entities/:id/values
 // Atomically create parameter values for an entity.
@@ -134,7 +149,7 @@ router.post('/', verifyToken, async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Civic Campaign values can only be changed through the moderated Civic Buzz workflow.', 403));
     }
-    assertCanModifyEntity(entity, req.user);
+    await assertCanWriteEntity(entity, req.user);
 
     // ── Body structure validation ──────────────────────────────────────────
     const { values } = req.body;
@@ -174,10 +189,11 @@ router.post('/', verifyToken, async (req, res, next) => {
       return next(createError(errors.join(' | '), 400));
     }
 
-    // ── Atomic batch insert via Prisma transaction ─────────────────────────
-    const created = await prisma.$transaction(
-      parsed.map((item) =>
-        prisma.parameterValue.create({
+    // ── Atomic batch insert, audited (old → new) in the same transaction ───
+    const created = await prisma.$transaction(async (tx) => {
+      const rows = [];
+      for (const item of parsed) {
+        rows.push(await tx.parameterValue.create({
           data: {
             entity_id: entityId,
             parameter_id: item.parameter_id,
@@ -194,9 +210,16 @@ router.post('/', verifyToken, async (req, res, next) => {
               },
             },
           },
-        })
-      )
-    );
+        }));
+      }
+      await writeAudit(tx, {
+        entityId,
+        user: req.user,
+        action: 'values_updated',
+        changes: valueChanges(parsed, new Map(), paramMap),
+      });
+      return rows;
+    });
 
     return res.status(201).json({ success: true, data: created });
   } catch (err) {
@@ -287,7 +310,7 @@ router.put('/', verifyToken, async (req, res, next) => {
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Civic Campaign values can only be changed through the moderated Civic Buzz workflow.', 403));
     }
-    assertCanModifyEntity(entity, req.user);
+    await assertCanWriteEntity(entity, req.user);
 
     // ── Body structure validation ──────────────────────────────────────────
     const { values } = req.body;
@@ -329,6 +352,7 @@ router.put('/', verifyToken, async (req, res, next) => {
     // ── Atomic upsert via interactive transaction ─────────────────────────
     const results = await prisma.$transaction(async (tx) => {
       const upserted = [];
+      const oldValues = new Map();
 
       for (const item of parsed) {
         // Check if a value row already exists for this (entity, parameter)
@@ -341,6 +365,7 @@ router.put('/', verifyToken, async (req, res, next) => {
 
         let row;
         if (existing) {
+          oldValues.set(item.parameter_id, existing.value);
           // Update the existing row
           row = await tx.parameterValue.update({
             where: { value_id: existing.value_id },
@@ -380,6 +405,12 @@ router.put('/', verifyToken, async (req, res, next) => {
         upserted.push(row);
       }
 
+      await writeAudit(tx, {
+        entityId,
+        user: req.user,
+        action: 'values_updated',
+        changes: valueChanges(parsed, oldValues, paramMap),
+      });
       return upserted;
     });
 

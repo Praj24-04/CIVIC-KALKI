@@ -21,7 +21,7 @@ const { executeWorkflowTransition, getWorkflowMasterRules, validateWorkflowTrans
 const { applyLocationVisibility, applyLocationVisibilityMany } = require('../services/locationVisibility');
 const prisma = require('../db');
 const { getNotificationFeed } = require('../services/notificationFeed');
-const { assertCanModifyEntity, assertOwnerOrStaff, viewerLevel, redactOwnerForViewer, ownerSelectFor, isPublicStatus, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
+const { assertCanWriteEntity, diffChanges, writeAudit, assertOwnerOrStaff, viewerLevel, redactOwnerForViewer, ownerSelectFor, isPublicStatus, PUBLIC_STATUS, STAFF_ROLES } = require('../services/entityAccess');
 
 // Largest page a client may ask for.
 const MAX_PAGE_SIZE = 100;
@@ -103,10 +103,6 @@ async function assertMostSpecificJurisdiction(node) {
       400
     );
   }
-}
-
-function checkEntityOwnership(existingEntity, reqUser) {
-  return assertCanModifyEntity(existingEntity, reqUser);
 }
 
 // ── GET /entities/entity-types — list all EntityTypes ────────────────────────
@@ -705,8 +701,8 @@ router.put('/:id', verifyToken, async (req, res, next) => {
       return next(createError('Civic Campaign drafts must be edited through the Civic Buzz workflow.', 403));
     }
 
-    // ── Ownership protection: owner or privileged staff required ──────────────
-    checkEntityOwnership(existing, req.user);
+    // ── Write guard: ownership, area scope and status lock ────────────────────
+    await assertCanWriteEntity(existing, req.user);
 
     // ── Build update payload (only provided fields) ───────────────────────────
     const updateData = {};
@@ -770,16 +766,25 @@ router.put('/:id', verifyToken, async (req, res, next) => {
       }
     }
 
-    // ── Perform update ────────────────────────────────────────────────────────
-    const updated = await prisma.entity.update({
-      where: { entity_id: entityId },
-      data: updateData,
-      include: {
-        entityType: {
-          select: { entity_type_id: true, name: true, location_visibility: true },
+    // ── Perform update and audit it (old → new) in one transaction ───────────
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.entity.update({
+        where: { entity_id: entityId },
+        data: updateData,
+        include: {
+          entityType: {
+            select: { entity_type_id: true, name: true, location_visibility: true },
+          },
+          jurisdiction: true,
         },
-        jurisdiction: true,
-      },
+      });
+      await writeAudit(tx, {
+        entityId,
+        user: req.user,
+        action: 'entity_updated',
+        changes: diffChanges(existing, updateData),
+      });
+      return row;
     });
 
     // ── Fire rule engine (non-blocking) if status was changed ────────────────
@@ -812,9 +817,9 @@ router.put('/:id', verifyToken, async (req, res, next) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DELETE /entities/:id  — SOFT DELETE
-// Sets entity.status = 'deleted'. No rows are physically removed.
-// Children (parameter_value, file_repository, audit_log) are untouched.
+// DELETE /entities/:id  — a workflow transition to "deleted"
+// Runs through the workflow engine (compare-and-set, audit log, approval
+// history). No rows are physically removed. Optional body: { reason }.
 // ─────────────────────────────────────────────────────────────────────────────
 router.delete('/:id', verifyToken, async (req, res, next) => {
   try {
@@ -837,27 +842,31 @@ router.delete('/:id', verifyToken, async (req, res, next) => {
       return next(createError('Civic Campaign posts must be unpublished through the Civic Buzz workflow.', 403));
     }
 
-    // ── Ownership protection: owner or privileged staff required ──────────────
-    checkEntityOwnership(existing, req.user);
-
-    // ── Guard: already soft-deleted ───────────────────────────────────────────
+    // ── Already deleted: nothing to do (repeat requests are harmless) ────────
     if (existing.status === 'deleted') {
+      assertOwnerOrStaff(existing, req.user);
       return res.status(200).json({
         success: true,
         message: `Entity ${entityId} is already marked as deleted.`,
       });
     }
 
-    // ── Soft delete ───────────────────────────────────────────────────────────
-    const softDeleted = await prisma.entity.update({
-      where: { entity_id: entityId },
-      data: { status: 'deleted' },
+    // ── Write guard: ownership, area scope and status lock ────────────────────
+    await assertCanWriteEntity(existing, req.user);
+
+    // ── Delete as a workflow transition ───────────────────────────────────────
+    const reason = req.body && typeof req.body.reason === 'string' ? req.body.reason : null;
+    const result = await executeWorkflowTransition({
+      entityId,
+      toStatus: 'deleted',
+      reason,
+      user: req.user,
     });
 
     return res.status(200).json({
       success: true,
-      message: `Entity ${entityId} has been soft-deleted (status set to 'deleted'). Related records are preserved.`,
-      data: { entity_id: softDeleted.entity_id, status: softDeleted.status },
+      message: `Entity ${entityId} has been deleted (status "${result.previousStatus}" → "deleted"). Related records are preserved.`,
+      data: { entity_id: result.updatedEntity.entity_id, status: result.updatedEntity.status },
     });
   } catch (err) {
     return next(err);

@@ -17,7 +17,7 @@ const fs = require('fs');
 const router = express.Router();
 const prisma = require('../db');
 const { verifyToken } = require('../middleware/auth');
-const { assertCanModifyEntity, assertCanReadEntityData, assertOwnerOrStaff } = require('../services/entityAccess');
+const { assertCanWriteEntity, writeAudit, assertCanReadEntityData, assertOwnerOrStaff } = require('../services/entityAccess');
 
 // ── Ensure uploads directory exists ──────────────────────────────────────────
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
@@ -106,7 +106,7 @@ router.post('/upload', verifyToken, upload.array('files', 5), async (req, res, n
     if (entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Campaign photos must use the scoped Civic Buzz upload endpoint.', 403));
     }
-    assertCanModifyEntity(entity, req.user);
+    await assertCanWriteEntity(entity, req.user);
 
     // Verify parameter exists and is a file type
     const param = await prisma.parameterMaster.findUnique({ where: { parameter_id: parsedParamId } });
@@ -116,39 +116,56 @@ router.post('/upload', verifyToken, upload.array('files', 5), async (req, res, n
       return next(createError('No files were uploaded.', 400));
     }
 
-    // Create FileRepository records
-    const fileRecords = [];
-    for (const file of req.files) {
-      const record = await prisma.fileRepository.create({
-        data: {
-          entity_id: parsedEntityId,
-          parameter_id: parsedParamId,
-          file_name: file.originalname,
-          path: file.filename, // stored filename on disk
+    // File records, the ParameterValue holding the filename(s) and the audit row
+    // are written in one transaction.
+    const fileNames = req.files.map(f => f.originalname).join(', ');
+    const fileRecords = await prisma.$transaction(async (tx) => {
+      const records = [];
+      for (const file of req.files) {
+        const record = await tx.fileRepository.create({
+          data: {
+            entity_id: parsedEntityId,
+            parameter_id: parsedParamId,
+            file_name: file.originalname,
+            path: file.filename, // stored filename on disk
+          },
+        });
+        records.push({
+          ...record,
+          size: file.size,
+          mimetype: file.mimetype,
+        });
+      }
+
+      const existingPv = await tx.parameterValue.findFirst({
+        where: { entity_id: parsedEntityId, parameter_id: parsedParamId },
+      });
+      if (existingPv) {
+        await tx.parameterValue.update({
+          where: { value_id: existingPv.value_id },
+          data: { value: fileNames },
+        });
+      } else {
+        await tx.parameterValue.create({
+          data: { entity_id: parsedEntityId, parameter_id: parsedParamId, value: fileNames },
+        });
+      }
+
+      await writeAudit(tx, {
+        entityId: parsedEntityId,
+        user: req.user,
+        action: 'file_attached',
+        changes: {
+          [param.field_key || `parameter_${parsedParamId}`]: {
+            parameter_id: parsedParamId,
+            old: existingPv ? existingPv.value : null,
+            new: fileNames,
+          },
+          files: { old: null, new: records.map((r) => ({ file_id: r.file_id, file_name: r.file_name })) },
         },
       });
-      fileRecords.push({
-        ...record,
-        size: file.size,
-        mimetype: file.mimetype,
-      });
-    }
-
-    // Also create/update a ParameterValue entry storing the filename(s)
-    const fileNames = req.files.map(f => f.originalname).join(', ');
-    const existingPv = await prisma.parameterValue.findFirst({
-      where: { entity_id: parsedEntityId, parameter_id: parsedParamId },
+      return records;
     });
-    if (existingPv) {
-      await prisma.parameterValue.update({
-        where: { value_id: existingPv.value_id },
-        data: { value: fileNames },
-      });
-    } else {
-      await prisma.parameterValue.create({
-        data: { entity_id: parsedEntityId, parameter_id: parsedParamId, value: fileNames },
-      });
-    }
 
     return res.status(201).json({ success: true, data: fileRecords });
   } catch (err) {
@@ -233,15 +250,26 @@ router.delete('/:fileId', verifyToken, async (req, res, next) => {
     if (record.entity.entityType?.name === 'Civic Campaign') {
       return next(createError('Campaign photos are managed only through the Civic Buzz workflow.', 404));
     }
-    assertCanModifyEntity(record.entity, req.user);
+    await assertCanWriteEntity(record.entity, req.user);
+
+    // Remove the record and audit it together; the physical file goes only after commit
+    await prisma.$transaction(async (tx) => {
+      await tx.fileRepository.delete({ where: { file_id: fileId } });
+      await writeAudit(tx, {
+        entityId: record.entity_id,
+        user: req.user,
+        action: 'file_removed',
+        changes: {
+          files: { old: { file_id: record.file_id, file_name: record.file_name, parameter_id: record.parameter_id }, new: null },
+        },
+      });
+    });
 
     // Delete physical file (best effort)
     const filePath = path.join(UPLOAD_DIR, record.path);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
-
-    await prisma.fileRepository.delete({ where: { file_id: fileId } });
 
     return res.status(200).json({ success: true, message: `File ${fileId} deleted.` });
   } catch (err) {
