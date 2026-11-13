@@ -776,6 +776,9 @@ const MODULE_DEFINITIONS = [
     // ── 6. Seed Donation Governance Intelligence module ──
     await seedGovernanceModule(domain.domain_id);
 
+    // ── 7. Case panel flag rules (configuration, per module) ──
+    await seedCaseFlagConfig();
+
     await prisma.$disconnect();
   } catch (err) {
     console.error(err);
@@ -1246,3 +1249,47 @@ async function seedGovernanceModule(domainId) {
   console.log('── Governance Intelligence module seeding complete.\n');
 }
 
+
+// ════════════════════════════════════════════════════════════════════════════
+//  CASE PANEL — flag rules
+//  The coordinator's case panel raises a flag only when one of these rules
+//  matches. Each rule names the field it reads. Stored as a DashboardMaster
+//  config row per module (widget_name 'case_flag_config'); an existing row is
+//  left alone so edited thresholds survive a re-seed.
+//  field: a form field_key, or days_in_status | days_since_filed | similar_cases
+//  op:    eq | in | gt | gte | lt | lte | empty
+// ════════════════════════════════════════════════════════════════════════════
+
+const CASE_FLAG_RULES = {
+  Grievance: [
+    { id: 'severity_high', label: 'Reported severity is Severe or Critical', field: 'severity', op: 'in', value: ['Severe', 'Critical'] },
+    { id: 'waiting_7_days', label: 'Waiting more than 7 days at this status', field: 'days_in_status', op: 'gt', value: 7, statuses: ['submitted', 'coordinator_approved'] },
+    { id: 'cluster_3', label: '3 or more similar cases in this area', field: 'similar_cases', op: 'gte', value: 3 },
+  ],
+  Movement: [
+    { id: 'urgency_high', label: 'Citizen marked urgency High or Critical', field: 'citizen_urgency', op: 'in', value: ['High', 'Critical'] },
+    { id: 'budget_5_lakh', label: 'Estimated budget is 500000 or more', field: 'estimated_budget', op: 'gte', value: 500000 },
+    { id: 'waiting_7_days', label: 'Waiting more than 7 days at this status', field: 'days_in_status', op: 'gt', value: 7, statuses: ['submitted', 'coordinator_approved'] },
+  ],
+};
+
+async function seedCaseFlagConfig() {
+  for (const [typeName, flags] of Object.entries(CASE_FLAG_RULES)) {
+    const type = await prisma.entityType.findFirst({ where: { name: typeName } });
+    if (!type) continue;
+    const existing = await prisma.dashboardMaster.findFirst({
+      where: { entity_type_id: type.entity_type_id, widget_name: 'case_flag_config' },
+    });
+    if (existing) continue;
+    await prisma.dashboardMaster.create({
+      data: {
+        entity_type_id: type.entity_type_id,
+        widget_name: 'case_flag_config',
+        metric: 'config',
+        display_type: 'config',
+        filter: JSON.stringify({ flags }),
+      },
+    });
+  }
+  console.log('  Case panel flag rules seeded.');
+}

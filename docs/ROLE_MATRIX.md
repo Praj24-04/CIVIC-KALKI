@@ -12,6 +12,14 @@ Roles: `citizen`, `coordinator_area`, `coordinator_general`, `director`, `admin`
 
 The card is rendered by `frontend/src/pages/entityDetail.js` only for director and admin.
 
+## Case panel on the record page
+
+| Action | Citizen | Area coordinator | General coordinator | Director | Admin |
+|---|---|---|---|---|---|
+| `GET /entities/:id/case-panel`, `POST .../case-panel/brief`, `POST .../case-panel/suggestion`, `POST /entities/:id/ai-analysis` | 403 | Own area only (403 otherwise) | Records with no area only (403 otherwise) | Yes | Yes |
+
+The suggested action is always one transition the caller is permitted to take; taking it is `POST /entities/:id/transition`, with its own checks. Backend: `assertCasePanelScope` in `backend/services/casePanel.js`. Tests: `backend/tests/casePanel.test.js`.
+
 ## Governance Intelligence
 
 | Action | Citizen | Area coordinator | General coordinator | Director | Admin |

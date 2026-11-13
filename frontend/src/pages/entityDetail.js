@@ -128,30 +128,25 @@ function renderContent(container, entity, values, audit, lineage, workflowMeta, 
   let aiCardHTML = '';
   if (isStaffOrAdmin && entity.status !== 'deleted') {
     aiCardHTML = `
-      <div class="card mb-6" id="ai-report-card" style="border: 1px solid var(--primary-border); background: #f8fafc;">
-        <div class="card-header" style="background: var(--surface); display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span style="display:flex; align-items:center; color:var(--primary);">
-              <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-            </span>
-            <div>
-              <h3 class="card-title" style="color: var(--text-primary); margin:0;">Civic Intelligence Analysis</h3>
-              <span id="ai-report-source" style="font-size: 12px; color: var(--text-muted);">AI-Assisted Decision Layer</span>
-            </div>
-          </div>
-          <span id="ai-report-badge" class="badge badge-primary" style="font-weight:600;">Executive Analysis</span>
+      <div class="card mb-6" id="case-panel-card" style="border:1px solid var(--primary-border);">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; padding:0.85rem 1.25rem;">
+          <h3 class="card-title" style="margin:0;">Case panel</h3>
+          <span style="font-size:12px; color:var(--text-muted);">Checklist, flags and suggestion are rule-based. Only the brief is AI.</span>
         </div>
-        <div class="card-body" id="ai-report-body" style="padding: 1.25rem;">
-          <div style="text-align:center; padding: 1rem 0;">
-            <p style="color:var(--text-secondary); margin-bottom:1.25rem; font-size:14px; max-width:600px; margin-left:auto; margin-right:auto;">
-              Run an automated AI analytical breakdown of this case to inspect observations, patterns, recommendations, and evidence.
-            </p>
-            <button id="btn-generate-ai" class="btn btn-primary" style="padding:10px 22px; font-weight:600; box-shadow:var(--shadow-sm); display:inline-flex; align-items:center; gap:8px;">
-              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-              Run Civic Intelligence Analysis
-            </button>
-          </div>
+        <div class="card-body" id="case-panel-body" style="padding:1rem 1.25rem;">
+          <div class="text-muted text-sm">Loading case panel…</div>
         </div>
+        <details id="case-deeper" style="border-top:1px solid var(--border); padding:0.75rem 1.25rem;">
+          <summary style="cursor:pointer; font-size:13px; font-weight:600; color:var(--text-secondary);">Deeper analysis (optional, general commentary)</summary>
+          <div style="font-size:12px; color:var(--text-muted); margin:8px 0;">
+            General AI commentary on this case. It is not checked against the record, is not used for the checklist, flags or suggested action, and may contain statements that do not come from this case.
+          </div>
+          <div id="ai-report-source" style="font-size:12px; color:var(--text-muted); margin-bottom:8px;"></div>
+          <span id="ai-report-badge" class="badge badge-pending" style="display:none;"></span>
+          <div id="ai-report-body">
+            <button id="btn-generate-ai" class="btn btn-secondary btn-sm">Run deeper analysis</button>
+          </div>
+        </details>
       </div>
     `;
   }
@@ -389,6 +384,7 @@ function renderContent(container, entity, values, audit, lineage, workflowMeta, 
 
   // Attach Dynamic Action Button Listeners
   attachActionListeners(entity.entity_id);
+  if (document.getElementById('case-panel-body')) loadCasePanel(entity);
 
   // Initialize ReadOnlyMap if coordinates are present in entity response
   initReadOnlyMaps();
@@ -605,6 +601,170 @@ async function handleExecuteReport(reportId) {
   }
 }
 
+// ── Case panel ───────────────────────────────────────────────────────────────
+// Data comes from GET /entities/:id/case-panel (no AI call). The brief is asked
+// for separately and only when none is cached for this state of the record.
+// The suggested action is a button onto the normal workflow transition; nothing
+// here changes the record without the coordinator confirming.
+
+async function loadCasePanel(entity) {
+  const body = document.getElementById('case-panel-body');
+  if (!body) return;
+  let panel;
+  try {
+    panel = (await apiEntities.casePanel(entity.entity_id)).data;
+  } catch (err) {
+    body.innerHTML = err.status === 403
+      ? `<div class="text-muted text-sm">${escapeHtml(err.message || 'This case is outside your scope.')}</div>`
+      : `<div class="alert alert-error">Case panel could not be loaded: ${escapeHtml(err.message || '')}</div>`;
+    const deeper = document.getElementById('case-deeper');
+    if (deeper && err.status === 403) deeper.remove();
+    return;
+  }
+  body.innerHTML = renderCasePanel(panel, entity);
+  attachCasePanelEvents(panel, entity);
+
+  if (!panel.brief && panel.brief_pending) {
+    try {
+      const res = (await apiEntities.caseBrief(entity.entity_id)).data;
+      const slot = document.getElementById('case-brief');
+      if (slot) slot.innerHTML = renderBrief(res.brief, res.unavailable_reason, false);
+    } catch (err) {
+      const slot = document.getElementById('case-brief');
+      if (slot) slot.innerHTML = renderBrief(null, 'The AI brief could not be generated.', false);
+    }
+  }
+}
+
+function panelSection(title, note, inner) {
+  return `
+    <div style="margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:6px;">
+        <div style="font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--text-secondary);">${escapeHtml(title)}</div>
+        <div style="font-size:11px; color:var(--text-muted);">${note}</div>
+      </div>
+      ${inner}
+    </div>`;
+}
+
+function renderBrief(brief, unavailableReason, pending) {
+  if (brief) {
+    return `
+      <div style="font-size:14px; line-height:1.5; color:var(--text-primary);">
+        ${brief.lines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')}
+      </div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:4px;">
+        <span class="badge badge-primary" style="font-size:10px;">AI-generated</span>
+        Review before acting. Written from this record's fields, documents and notes only · ${escapeHtml(brief.model || '')} · ${escapeHtml(brief.prompt_version || '')}
+      </div>`;
+  }
+  if (pending) return `<div class="text-muted text-sm">Writing brief…</div>`;
+  return `<div class="text-muted text-sm">No AI brief: ${escapeHtml(String(unavailableReason || 'not available').replace(/\.$/, ''))}. Everything below is rule-based and unaffected.</div>`;
+}
+
+function renderCasePanel(panel, entity) {
+  const brief = panelSection('Case brief', '', `<div id="case-brief">${renderBrief(panel.brief, panel.brief_unavailable_reason, panel.brief_pending)}</div>`);
+
+  const missingRequired = panel.checklist.filter((i) => i.required && !i.present).length;
+  const checklistRows = panel.checklist.map((i) => `
+    <div style="display:flex; justify-content:space-between; gap:8px; font-size:13px; padding:3px 0;">
+      <span>${escapeHtml(i.label)} <span style="color:var(--text-muted); font-size:11px;">${i.kind === 'document' ? 'document' : 'field'} · ${i.required ? 'required' : 'optional'}</span></span>
+      <span style="font-weight:600; color:${i.present ? 'var(--green-600)' : (i.required ? '#b91c1c' : 'var(--text-muted)')};">${i.present ? 'Present' : 'Missing'}</span>
+    </div>`).join('');
+  const checklist = panelSection('Checklist', `From the form's metadata · ${missingRequired} required missing`,
+    checklistRows || '<div class="text-muted text-sm">This form defines no required fields or documents.</div>');
+
+  const flagRows = panel.flags.map((f) => `
+    <div style="font-size:13px; padding:3px 0;">
+      <strong>${escapeHtml(f.label)}</strong>
+      <span style="color:var(--text-muted); font-size:12px;"> · source: ${escapeHtml(f.source_label)} = ${escapeHtml(f.value)} · rule: ${escapeHtml(f.rule)}</span>
+    </div>`).join('');
+  const flags = panelSection('Flags', `${panel.flag_rules_configured} configured rule${panel.flag_rules_configured === 1 ? '' : 's'}`,
+    flagRows || `<div class="text-muted text-sm">${panel.flag_rules_configured ? 'No configured rule is raised by this case.' : 'No flag rules are configured for this service.'}</div>`);
+
+  const similarRows = panel.similar_cases.map((c) => `
+    <div style="font-size:13px; padding:3px 0;">
+      <a href="/entities/${c.entity_id}" data-link>#${c.entity_id} ${escapeHtml(c.name)}</a>
+      <span style="color:var(--text-muted); font-size:12px;"> · ${escapeHtml(formatStatusLabel(c.status))} · filed ${escapeHtml(new Date(c.filed_at).toLocaleDateString())}</span>
+    </div>`).join('');
+  const similar = panelSection('Similar cases', `Same service, same area, within ${panel.similar_window_days} days`,
+    similarRows || '<div class="text-muted text-sm">None found.</div>');
+
+  let suggestionInner;
+  const s = panel.suggestion;
+  if (!s) {
+    suggestionInner = `<div class="text-muted text-sm">${escapeHtml(panel.suggestion_none_reason || 'No suggestion.')}</div>`;
+  } else if (s.outcome === 'dismissed') {
+    suggestionInner = `<div class="text-muted text-sm">You dismissed the suggestion for this case. The workflow actions remain available in the actions box.</div>`;
+  } else {
+    const label = formatActionLabel(entity.status, s.to_status);
+    suggestionInner = `
+      <div style="font-size:14px;"><strong>${escapeHtml(label)}</strong></div>
+      <div style="font-size:13px; color:var(--text-secondary); margin:2px 0 8px;">${escapeHtml(s.reason)}</div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn ${s.to_status === 'rejected' ? 'btn-danger' : 'btn-primary'} btn-sm" id="case-suggestion-act">${escapeHtml(label)}…</button>
+        <button class="btn btn-ghost btn-sm" id="case-suggestion-dismiss">Dismiss</button>
+      </div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">Nothing happens until you confirm. Your choice is logged.</div>`;
+  }
+  const suggestion = panelSection('Suggested next action', 'Rule-based · you decide', suggestionInner);
+
+  return brief + checklist + flags + similar + suggestion;
+}
+
+function attachCasePanelEvents(panel, entity) {
+  const s = panel.suggestion;
+  if (!s) return;
+  const entityId = entity.entity_id;
+  const log = (outcome, finalReason) => apiEntities
+    .caseSuggestionOutcome(entityId, { suggestion_id: s.suggestion_id, outcome, final_reason: finalReason })
+    .catch(() => {});
+
+  document.getElementById('case-suggestion-dismiss')?.addEventListener('click', async () => {
+    await log('dismissed');
+    loadCasePanel(entity);
+  });
+
+  document.getElementById('case-suggestion-act')?.addEventListener('click', () => {
+    const isReject = s.to_status === 'rejected';
+    const label = formatActionLabel(entity.status, s.to_status);
+    showModal({
+      title: `Confirm: ${label}`,
+      content: isReject ? `
+        <div class="form-group mb-4">
+          <label class="form-label" for="case-suggestion-reason">Reason for rejection <span class="required">*</span></label>
+          <textarea id="case-suggestion-reason" class="form-control" rows="3" required>${escapeHtml(s.reason)}</textarea>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Suggested by rule. Edit it before confirming if it is not right; the citizen sees this reason.</div>
+        </div>` : `
+        <p style="font-size:0.9rem; color:var(--text-secondary);">
+          Execute <strong>${escapeHtml(label)}</strong> for case #${entityId}?
+        </p>`,
+      footer: `
+        <button class="btn btn-ghost" id="cancel-modal-btn">Cancel</button>
+        <button class="btn ${isReject ? 'btn-danger' : 'btn-primary'}" id="confirm-action-btn">Confirm</button>`,
+      onClose: () => {},
+    });
+    document.getElementById('cancel-modal-btn').addEventListener('click', closeModal);
+    document.getElementById('confirm-action-btn').addEventListener('click', async () => {
+      const reason = isReject ? document.getElementById('case-suggestion-reason').value.trim() : null;
+      if (isReject && !reason) {
+        toastError('Reason is required for rejection');
+        return;
+      }
+      closeModal();
+      try {
+        const res = await apiEntities.transition(entityId, s.to_status, reason);
+        const edited = isReject && reason !== s.reason;
+        await log(edited ? 'edited' : 'accepted', edited ? reason : undefined);
+        toastSuccess(res.message || `Status updated to ${s.to_status}`);
+        renderEntityDetail({ id: entityId });
+      } catch (err) {
+        toastError(err.message || 'Transition failed');
+      }
+    });
+  });
+}
+
 async function handleGenerateAIReport(entity, values = []) {
   const entityId = entity.entity_id;
   const reportBody = document.getElementById('ai-report-body');
@@ -613,14 +773,14 @@ async function handleGenerateAIReport(entity, values = []) {
   reportBody.innerHTML = `
     <div style="text-align:center; padding: 2rem 1rem;">
       <div class="spinner spinner-lg mb-3" style="border-top-color:var(--primary); margin:0 auto 12px auto;"></div>
-      <div style="font-weight:600; color:var(--text-primary); font-size:15px;">Running Civic Intelligence Analysis...</div>
+      <div style="font-weight:600; color:var(--text-primary); font-size:15px;">Running deeper analysis...</div>
       <div style="color:var(--text-muted); font-size:13px; margin-top:4px;">Evaluating observations, patterns, recommendations, and evidence.</div>
     </div>
   `;
 
   try {
     const res = await apiEntities.aiAnalysis(entityId);
-    toastSuccess('Civic Intelligence Analysis generated successfully!');
+    
     setReportSourceLabel('ai');
     reportBody.innerHTML = renderReportSections(res.data);
   } catch (err) {
@@ -651,10 +811,12 @@ function setReportSourceLabel(source) {
   if (source === 'deterministic') {
     sourceEl.textContent = 'Deterministic summary — not AI output';
     badgeEl.textContent = 'Not AI';
+    badgeEl.style.display = '';
     badgeEl.className = 'badge badge-pending';
   } else {
-    sourceEl.textContent = 'AI-generated — review before acting';
+    sourceEl.textContent = 'AI-generated general commentary — review before acting';
     badgeEl.textContent = 'AI output';
+    badgeEl.style.display = '';
     badgeEl.className = 'badge badge-primary';
   }
 }

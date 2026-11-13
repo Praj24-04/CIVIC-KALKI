@@ -17,6 +17,7 @@ const router = express.Router();
 const { verifyToken, checkRole } = require('../middleware/auth');
 const { checkAndFireRules } = require('../services/ruleEngine');
 const { generateIntelligenceReport } = require('../services/aiSuggestion');
+const casePanel = require('../services/casePanel');
 const { executeWorkflowTransition, getWorkflowMasterRules, validateWorkflowTransition } = require('../services/workflowEngine');
 const { applyLocationVisibility, applyLocationVisibilityMany } = require('../services/locationVisibility');
 const prisma = require('../db');
@@ -1219,12 +1220,57 @@ router.get('/:id/lineage', verifyToken, async (req, res, next) => {
 router.post('/:id/ai-analysis', verifyToken, checkRole(['coordinator_area', 'coordinator_general', 'director', 'admin']), async (req, res, next) => {
   try {
     const entityId = parsePositiveInt(req.params.id, 'id');
+    // Same boundary as the case panel: a coordinator only analyses cases they handle.
+    casePanel.assertCasePanelScope(await casePanel.loadCase(entityId), req.user);
     const { report, logId } = await generateIntelligenceReport(entityId, req.user.user_id);
     return res.status(200).json({
       success: true,
       data: report,
       log_id: logId,
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Case panel (coordinator, director, admin) — services/casePanel.js
+//   GET  /entities/:id/case-panel             checklist, flags, similar cases,
+//                                             one suggested action, cached brief.
+//                                             Makes no AI call.
+//   POST /entities/:id/case-panel/brief       the AI brief: cached per state of
+//                                             the record, generated only if absent.
+//   POST /entities/:id/case-panel/suggestion  audit what the user did with the
+//                                             suggestion. Changes nothing else.
+// None of these changes a record's status; acting is POST /entities/:id/transition.
+// ─────────────────────────────────────────────────────────────────────────────
+const CASE_PANEL_ROLES = ['coordinator_area', 'coordinator_general', 'director', 'admin'];
+
+router.get('/:id/case-panel', verifyToken, checkRole(CASE_PANEL_ROLES), async (req, res, next) => {
+  try {
+    const entityId = parsePositiveInt(req.params.id, 'id');
+    return res.status(200).json({ success: true, data: await casePanel.buildCasePanel(entityId, req.user) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/:id/case-panel/brief', verifyToken, checkRole(CASE_PANEL_ROLES), async (req, res, next) => {
+  try {
+    const entityId = parsePositiveInt(req.params.id, 'id');
+    return res.status(200).json({ success: true, data: await casePanel.briefForCase(entityId, req.user) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/:id/case-panel/suggestion', verifyToken, checkRole(CASE_PANEL_ROLES), async (req, res, next) => {
+  try {
+    const entityId = parsePositiveInt(req.params.id, 'id');
+    casePanel.assertCasePanelScope(await casePanel.loadCase(entityId), req.user);
+    const { suggestion_id: suggestionId, outcome, final_reason: finalReason } = req.body || {};
+    const data = await casePanel.recordSuggestionOutcome({ entityId, suggestionId, outcome, finalReason, user: req.user });
+    return res.status(201).json({ success: true, data });
   } catch (err) {
     return next(err);
   }

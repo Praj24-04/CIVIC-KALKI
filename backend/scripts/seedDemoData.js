@@ -35,7 +35,22 @@ const HISTORY = {
 async function findOrCreateEntity(data, citizen) {
   const existing = await prisma.entity.findFirst({ where: { name: data.name } });
   if (existing) return { entity: existing, created: false };
-  const entity = await prisma.entity.create({ data });
+  const { fields = {}, ...entityData } = data;
+  const entity = await prisma.entity.create({ data: entityData });
+
+  // The form answers the citizen would have given. Without them every required
+  // item on the coordinator's checklist would read "missing".
+  const parameters = await prisma.parameterMaster.findMany({
+    where: {
+      field_key: { in: Object.keys(fields) },
+      subsectionMaster: { sectionMaster: { formMaster: { entity_type_id: entityData.entity_type_id, status: 'active' } } },
+    },
+  });
+  for (const p of parameters) {
+    await prisma.parameterValue.create({
+      data: { entity_id: entity.entity_id, parameter_id: p.parameter_id, value: String(fields[p.field_key]) },
+    });
+  }
 
   // Give the record the audit trail and approval history it would have if it had
   // gone through the workflow, so the activity log and the notification feed are
@@ -104,7 +119,24 @@ async function main() {
     throw new Error('Core modules not found. Run "node seed.js" first.');
   }
 
-  const record = (type, name, area, location, status) => ({
+  const initiative = (description, type, urgency = 'Normal', budget = null) => ({
+    initiative_description: description,
+    initiative_type: type,
+    problem_need: description,
+    proposed_solution: 'Residents and ward staff carry out the work together over the stated period.',
+    key_objectives: 'Complete the work described and hand the site back to the ward office.',
+    citizen_urgency: urgency,
+    ...(budget ? { estimated_budget: budget } : {}),
+  });
+  const grievance = (details, category, severity) => ({
+    complaint_details: details,
+    category,
+    severity,
+    reporter_name: citizen.name,
+  });
+
+  const record = (type, name, area, location, status, fields = {}) => ({
+    fields,
     entity_type_id: type.entity_type_id,
     owner_user_id: citizen.user_id,
     jurisdiction_id: ward[area].jurisdiction_id,
@@ -116,16 +148,24 @@ async function main() {
 
   const records = [
     // Waiting for the Kothrud area coordinator
-    record(movementType, 'Safe Streets Pune', DEMO_AREA, 'Kothrud Main Boulevard', 'submitted'),
-    record(movementType, 'Kothrud Park Greenery Restoration', DEMO_AREA, 'Kothrud Vanaz Corner', 'submitted'),
-    record(grievanceType, 'Damaged Streetlights on Kothrud Boulevard', DEMO_AREA, 'Kothrud Stand Stop', 'submitted'),
+    record(movementType, 'Safe Streets Pune', DEMO_AREA, 'Kothrud Main Boulevard', 'submitted',
+      initiative('Paint zebra crossings and add speed-calming signs on the three school approaches of Kothrud Main Boulevard.', 'Women Safety', 'High', 120000)),
+    record(movementType, 'Kothrud Park Greenery Restoration', DEMO_AREA, 'Kothrud Vanaz Corner', 'submitted',
+      initiative('Replant the dried-out beds and repair the drip line in the park at Vanaz Corner.', 'Environmental')),
+    record(grievanceType, 'Damaged Streetlights on Kothrud Boulevard', DEMO_AREA, 'Kothrud Stand Stop', 'submitted',
+      grievance('Six streetlights between Kothrud Stand and the depot have been off for ten days; the stretch is dark after 7 pm.', 'Infrastructure', 'Severe')),
     // Waiting for the director
-    record(movementType, 'Kothrud Lake Clean-up Drive', DEMO_AREA, 'Kothrud Lake Road', 'coordinator_approved'),
-    record(movementType, 'Aundh Community Park Upgrade', 'Aundh', 'Aundh Sector 2', 'coordinator_approved'),
+    record(movementType, 'Kothrud Lake Clean-up Drive', DEMO_AREA, 'Kothrud Lake Road', 'coordinator_approved',
+      initiative('Remove floating waste from the lake edge and clear the inlet grating before the monsoon.', 'Cleanliness', 'Normal', 60000)),
+    record(movementType, 'Aundh Community Park Upgrade', 'Aundh', 'Aundh Sector 2', 'coordinator_approved',
+      initiative('Resurface the walking track and add benches in the Aundh Sector 2 community park.', 'Environmental', 'Normal', 650000)),
     // Other wards, already decided or outside the demo coordinator's area
-    record(movementType, 'Clean Pune Initiative', 'Shivajinagar', 'JM Road & Deccan Gymkhana', 'approved'),
-    record(grievanceType, 'Broken Playground Swings in Shivaji Park', 'Shivajinagar', 'Shivaji Park Playground', 'approved'),
-    record(grievanceType, 'Garbage Accumulation near JM Road Market', 'Shivajinagar', 'JM Road Lane 3', 'submitted'),
+    record(movementType, 'Clean Pune Initiative', 'Shivajinagar', 'JM Road & Deccan Gymkhana', 'approved',
+      initiative('Weekly volunteer clean-up of JM Road and the Deccan Gymkhana footpaths.', 'Cleanliness')),
+    record(grievanceType, 'Broken Playground Swings in Shivaji Park', 'Shivajinagar', 'Shivaji Park Playground', 'approved',
+      grievance('Two swings in the Shivaji Park playground have broken chains and are unsafe for children.', 'Safety', 'Moderate')),
+    record(grievanceType, 'Garbage Accumulation near JM Road Market', 'Shivajinagar', 'JM Road Lane 3', 'submitted',
+      grievance('Garbage has not been collected from the market end of JM Road Lane 3 for five days.', 'Sanitation', 'Moderate')),
   ];
 
   let createdCount = 0;
