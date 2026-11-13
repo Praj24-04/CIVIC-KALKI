@@ -52,7 +52,7 @@ Ids 1–19 are the "Seeded Movement" draft and the 18 simulated donation transac
 ## 1. Citizen: assistant and metadata form
 
 1. Sign in as the citizen. The dashboard lists their own records.
-2. The assistant is the first card on the citizen home page (also under **Help**). Describe a problem in a sentence ("There is a broken streetlight near my house in Kothrud"); the assistant picks the module, collects the fields, shows a summary and asks for confirmation before it submits. *(Needs AI; see AI-down path.)*
+2. The assistant is the first card on the citizen home page (also **Assistant** in the menu). Type "There's a pothole outside my building". It asks only what is missing (kind of problem, how serious, which area; tap a suggestion or type), reads it back, and files it when you say yes, giving a reference such as PR-00028 and who looks at it next. This works with no AI key; with a key it asks fewer questions. Say "actually it is critical" at any point to change an answer.
 3. **Initiatives → Start a Civic Initiative** (`/entities/new`) is the manual form. Choose a capability: the fields come from that module's form metadata. Set the area to **Kothrud** so the demo coordinator can act on it, then submit.
 
 ## 2. Two-level approval, rule, audit
@@ -96,7 +96,7 @@ Use this when there is no Gemini key or the venue network is unreliable. To forc
 
 | Feature | What happens today | What to do in the demo |
 |---|---|---|
-| Assistant | Replies within 15 s that the AI assistant is unavailable, says the message is automatic and not an AI answer, and points to the manual form. | Show the message once, then use the manual form in step 1.3. |
+| Assistant | Works. It understands by rules instead of AI, so it asks a little more (for example the kind of problem), and offers a choice when a request could mean two things. | Use it as in step 1.2. |
 | Director report | With no key, the card is relabelled **Deterministic summary — not AI output** with a "Not AI" badge and a notice, and lists only the record's own fields, with no analysis. With a key but no network, the request fails within 15 s with an error message. | Show the label. |
 | Governance Intelligence | Runs and is labeled **DETERMINISTIC ENGINE ONLY**. | Show as is. |
 | Civic Buzz / Meme safety and captions | Posting is refused with "Content safety check is temporarily unavailable" (fail-closed). | Show existing posts only. |

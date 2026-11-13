@@ -604,3 +604,43 @@ a.ws-item, a.ws-item:hover, a.ws-action, a.ws-action:hover, a.ws-fact, a.ws-fact
   .ws-chips { padding: 0 16px 12px; }
   .ws-item-side { justify-content: space-between; }
 }
+
+/* ============================================================
+   Civic assistant (chat page and home card)
+   ============================================================ */
+.assist-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 10px 42px; }
+.assist-chip {
+  padding: 7px 14px; border-radius: var(--radius-pill);
+  border: 1px solid var(--primary-border); background: var(--primary-light); color: var(--primary);
+  font: inherit; font-size: 0.88rem; font-weight: 600; cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.assist-chip:hover, .assist-chip:focus-visible { background: var(--primary); border-color: var(--primary); color: #fff; outline: none; }
+.assist-chips-dark { margin-left: 38px; }
+.assist-chips-dark .assist-chip { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .22); color: #fff; }
+.assist-chips-dark .assist-chip:hover, .assist-chips-dark .assist-chip:focus-visible { background: #fff; border-color: #fff; color: var(--primary-dark); }
+
+.agent-bubble { border-radius: 16px; line-height: 1.5; font-size: 0.95rem; }
+.agent-bubble-agent { background: var(--surface); border: 1px solid rgba(20, 33, 43, .08); color: var(--text-primary); border-top-left-radius: 6px; }
+.agent-bubble-user { background: var(--primary) !important; color: #fff; border-top-right-radius: 6px; }
+.agent-bubble-avatar { background: var(--primary) !important; }
+.assist-avatar-done { background: var(--green-600) !important; }
+
+.agent-confirm-card, .agent-success-card {
+  background: var(--surface); border: 1px solid rgba(20, 33, 43, .08);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 16px 18px; max-width: 560px;
+}
+.agent-confirm-title { font-weight: 650; font-size: 0.98rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.agent-confirm-row { display: grid; grid-template-columns: 120px 1fr; gap: 12px; padding: 7px 0; border-top: 1px solid rgba(20, 33, 43, .06); font-size: 0.9rem; }
+.agent-confirm-label { color: var(--text-muted); }
+.agent-confirm-value { color: var(--text-primary); font-weight: 500; overflow-wrap: anywhere; }
+.agent-confirm-note { margin-top: 10px; font-size: 0.8rem; color: var(--text-muted); }
+.agent-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+.assist-success-title { font-size: 0.72rem; font-weight: 650; letter-spacing: 0.09em; text-transform: uppercase; color: var(--green-700); }
+.assist-success-ref { font-family: var(--font-display); font-size: 1.7rem; font-weight: 560; line-height: 1.15; color: var(--text-primary); margin-top: 2px; }
+.assist-success-name { font-size: 0.93rem; color: var(--text-secondary); margin-top: 2px; }
+.assist-success-meta { font-size: 0.82rem; color: var(--text-muted); margin-top: 6px; }
+.assist-success-next { font-size: 0.9rem; color: var(--text-secondary); margin: 10px 0 0; line-height: 1.5; }
+.assist-success-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+@media (max-width: 600px) { .assist-chips { margin-left: 0; } .agent-confirm-row { grid-template-columns: 96px 1fr; } }

@@ -283,6 +283,12 @@ function listOf(items) {
   return `${a.slice(0, -1).join(', ')} or ${a[a.length - 1]}`;
 }
 
+/** Answers the citizen can tap instead of typing, when the choices are few. */
+function quickReplies(values) {
+  const list = (values || []).map(String);
+  return list.length && list.length <= 8 ? list.map((v) => ({ label: v, value: v })) : undefined;
+}
+
 function questionFor(field) {
   if (field.type === 'choice') return `Which ${field.plain} fits best: ${listOf(field.options)}?`;
   if (field.type === 'date') return `What is the ${field.plain}? You can say "today", "yesterday" or give a date.`;
@@ -337,6 +343,7 @@ function confirmReply(session, lead = 'Here is what I will send:') {
   return {
     type: 'confirm',
     text: `${lead}\n\n${lines}\n\nShall I send it? Say **yes**, or tell me what to change.`,
+    lead,
     summary,
     ready: true,
   };
@@ -508,12 +515,12 @@ function nextStep(session, wards, lead = '') {
     const f = gaps.fields[0];
     session.phase = 'collecting';
     session.asked = f.key;
-    return { type: 'question', text: say(questionFor(f)) };
+    return { type: 'question', text: say(questionFor(f)), options: quickReplies(f.options) };
   }
   if (gaps.ward) {
     session.phase = 'collecting';
     session.asked = '__ward';
-    return { type: 'question', text: say(wardQuestion(wards)) };
+    return { type: 'question', text: say(wardQuestion(wards)), options: quickReplies(wards.map((w) => w.name)) };
   }
   return confirmReply(session, lead ? `${lead} Here is what I will send:` : 'Here is what I will send:');
 }
@@ -630,13 +637,21 @@ async function continueFormFilling(sessionId, userMessage, user, _unused = [], a
           session.phase = 'choosing';
           session.choices = offered.map((s) => s.id);
           const options = offered.map((s, i) => `${i + 1}. ${s.label}`).join('\n');
-          return { type: 'question', text: `I want to send this to the right place. Which is closest to what you need?\n\n${options}` };
+          return {
+            type: 'question',
+            text: `I want to send this to the right place. Which is closest to what you need?\n\n${options}`,
+            options: offered.map((s, i) => ({ label: s.label, value: String(i + 1) })),
+          };
         }
         if (offered.length === 1) {
           // One possible match, but not a sure one: check before going further.
           session.phase = 'choosing';
           session.choices = [offered[0].id];
-          return { type: 'question', text: `It sounds like you want to ${offered[0].label.charAt(0).toLowerCase()}${offered[0].label.slice(1)}. Is that right?` };
+          return {
+            type: 'question',
+            text: `It sounds like you want to ${offered[0].label.charAt(0).toLowerCase()}${offered[0].label.slice(1)}. Is that right?`,
+            options: [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }],
+          };
         }
       }
       if (!pick) {
@@ -721,11 +736,16 @@ async function continueFormFilling(sessionId, userMessage, user, _unused = [], a
   // The asked question got an answer that does not pass: say why, ask again.
   const failedAsked = refused.find((r) => r.field.key === asked);
   if (failedAsked) {
-    return { type: 'question', text: `${failedAsked.why}${failedAsked.field.type === 'choice' ? '' : ` ${questionFor(failedAsked.field)}`}`, invalid: asked };
+    return {
+      type: 'question',
+      text: `${failedAsked.why}${failedAsked.field.type === 'choice' ? '' : ` ${questionFor(failedAsked.field)}`}`,
+      invalid: asked,
+      options: quickReplies(failedAsked.field.options),
+    };
   }
   if (asked === '__ward' && !session.ward && !accepted.length) {
     const names = wards.slice(0, 8).map((w) => w.name);
-    return { type: 'question', text: `I do not know that area yet. ${names.length ? `I can file it under ${listOf(names)}. Which is closest?` : 'Which ward is it in?'}`, invalid: '__ward' };
+    return { type: 'question', text: `I do not know that area yet. ${names.length ? `I can file it under ${listOf(names)}. Which is closest?` : 'Which ward is it in?'}`, invalid: '__ward', options: quickReplies(wards.map((w) => w.name)) };
   }
 
   // Say what changed, when something already given was changed.

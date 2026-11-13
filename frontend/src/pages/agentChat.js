@@ -103,6 +103,15 @@ function renderAgentBubble(text) {
   `;
 }
 
+/** Tappable answers under a question, when the assistant offers a short list. */
+function renderQuickReplies(options) {
+  if (!Array.isArray(options) || !options.length) return '';
+  return `
+    <div class="assist-chips" role="group" aria-label="Suggested answers">
+      ${options.map((o) => `<button type="button" class="assist-chip" data-reply="${escapeHtml(o.value)}">${escapeHtml(o.label)}</button>`).join('')}
+    </div>`;
+}
+
 function renderConfirmCard(summaryRows, confirmText) {
   const rows = Array.isArray(summaryRows)
     ? summaryRows.map(r => `
@@ -129,58 +138,43 @@ function renderConfirmCard(summaryRows, confirmText) {
           <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:var(--primary);flex-shrink:0;">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
           </svg>
-          Submission Summary — Please Review
+          Ready to send. Is this right?
         </div>
         ${intro}
         <div class="agent-confirm-table">${rows}</div>
-        <div class="agent-confirm-note" style="margin-top:10px; font-size:0.75rem; color:var(--text-muted); display:flex; align-items:center; gap:6px;">
-          <span>📎</span> <span>Uploaded photo/document evidence will be attached directly to your official submission.</span>
-        </div>
+        <div class="agent-confirm-note">Nothing is sent until you say so.</div>
         <div class="agent-confirm-actions" id="agent-confirm-btns">
           <button id="agent-submit-btn" class="btn btn-primary" style="min-width:120px;">
-            ✓ Submit
+            Send it
           </button>
-          <button id="agent-cancel-btn" class="btn btn-secondary" style="min-width:100px;">
-            ✗ Cancel
-          </button>
+          <button id="agent-change-btn" class="btn btn-secondary" type="button">Change something</button>
+          <button id="agent-cancel-btn" class="btn btn-ghost" type="button">Cancel</button>
         </div>
       </div>
     </div>
   `;
 }
 
-function renderSuccessCard(entityId, entityName, capability, files = []) {
-  const filesListHtml = Array.isArray(files) && files.length > 0
-    ? `<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:12px; display:flex; align-items:center; gap:4px;">
-         <span>📎</span> <span>Attached evidence: <strong>${files.map(escapeHtml).join(', ')}</strong></span>
-       </div>`
-    : '';
-
+function renderSuccessCard(data) {
+  const files = Array.isArray(data.files) && data.files.length
+    ? `<div class="assist-success-meta">Attached: ${data.files.map(escapeHtml).join(', ')}</div>` : '';
+  // The assistant's own words say who looks at it next; the first line (the reference) is shown above.
+  const next = String(data.text || '').split('\n').slice(1).join('\n').trim();
   return `
     <div class="agent-msg-row agent-msg-agent">
-      <div class="agent-bubble-avatar" style="background:var(--green-600);" aria-hidden="true">
-        <svg width="14" height="14" fill="none" stroke="white" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
-        </svg>
+      <div class="agent-bubble-avatar assist-avatar-done" aria-hidden="true">
+        <svg width="14" height="14" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
       </div>
-      <div class="agent-success-card">
-        <div style="font-weight:700; font-size:1rem; color:var(--green-700); margin-bottom:6px;">
-          ✅ ${escapeHtml(capability)} Submitted!
+      <div class="agent-success-card" role="status">
+        <div class="assist-success-title">Sent</div>
+        <div class="assist-success-ref">${escapeHtml(data.reference || `#${data.entity_id}`)}</div>
+        <div class="assist-success-name">${escapeHtml(data.entity_name || '')}</div>
+        ${files}
+        ${next ? `<p class="assist-success-next">${renderMarkdownLite(next)}</p>` : ''}
+        <div class="assist-success-actions">
+          <a href="/entities/${Number(data.entity_id)}" class="btn btn-sm btn-primary">Open my request</a>
+          <button id="agent-new-request-btn" class="btn btn-sm btn-ghost" type="button">Something else</button>
         </div>
-        <div style="font-size:0.875rem; color:var(--text-secondary); margin-bottom:8px;">
-          <strong>#${entityId}</strong> — ${escapeHtml(entityName)}
-        </div>
-        ${filesListHtml}
-        <a href="/entities/${entityId}" class="btn btn-sm btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-          </svg>
-          View My Request
-        </a>
-        <button id="agent-new-request-btn" class="btn btn-sm btn-ghost" style="margin-left:8px;">
-          + Start New Request
-        </button>
       </div>
     </div>
   `;
@@ -211,6 +205,7 @@ function getAttachBtn() { return document.getElementById('agent-attach-btn'); }
 function getFileInput() { return document.getElementById('agent-file-input'); }
 
 function appendHtml(html) {
+  getThread()?.querySelectorAll('.assist-chips').forEach((el) => el.remove());
   const thread = getThread();
   if (!thread) return;
   const temp = document.createElement('div');
@@ -325,12 +320,16 @@ async function sendMessage(message, explicitFile = null) {
 
     if (data.type === 'confirm') {
       pendingConfirmData = data;
-      appendHtml(renderConfirmCard(data.summary || [], data.text));
+      appendHtml(renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:'));
 
       // Wire confirm/cancel buttons
       setTimeout(() => {
         const submitBtn = document.getElementById('agent-submit-btn');
         const cancelBtn = document.getElementById('agent-cancel-btn');
+        document.getElementById('agent-change-btn')?.addEventListener('click', () => {
+          document.getElementById('agent-confirm-btns')?.remove();
+          sendMessage('no');
+        });
 
         if (submitBtn) {
           submitBtn.addEventListener('click', () => {
@@ -346,7 +345,7 @@ async function sendMessage(message, explicitFile = null) {
         }
       }, 50);
     } else if (data.type === 'submitted') {
-      appendHtml(renderSuccessCard(data.entity_id, data.entity_name, data.capability, data.files));
+      appendHtml(renderSuccessCard(data));
       setInputEnabled(false); // Finished
 
       setTimeout(() => {
@@ -359,11 +358,11 @@ async function sendMessage(message, explicitFile = null) {
       }, 50);
     } else {
       // question, status, guidance, unclear, cancelled, error
-      appendHtml(renderAgentBubble(data.text || 'Something went wrong. Please try again.'));
+      appendHtml(renderAgentBubble(data.text || 'Something went wrong. Please try again.') + renderQuickReplies(data.options));
     }
   } catch (err) {
     removeThinking();
-    appendHtml(renderAgentBubble('Sorry, I encountered an error processing your request. Please try again or use the manual form.'));
+    appendHtml(renderAgentBubble('Sorry, I could not reach the service just now. Nothing was sent. Please try again in a moment.'));
     console.error('[Agent Chat] Error:', err);
   } finally {
     isWaiting = false;
@@ -553,9 +552,9 @@ export async function renderAgentChat(params = {}, searchParams = null) {
           </svg>
         </div>
         <div>
-          <div style="font-weight:700; font-size:0.95rem;">CIVIC-KALKI Assistant</div>
+          <div style="font-weight:700; font-size:0.95rem;">Civic assistant</div>
           <div style="font-size:0.75rem; color:var(--text-muted);">
-            Report problems · Upload photo evidence · Start initiatives · Check request status
+            Say it in your own words. Nothing is sent until you confirm.
           </div>
         </div>
         <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
@@ -572,7 +571,7 @@ export async function renderAgentChat(params = {}, searchParams = null) {
 
       <div id="agent-thread" role="log" aria-live="polite" aria-label="Conversation with Civic Assistant">
         <!-- Initial greeting -->
-        ${renderAgentBubble('Hello! I\'m your CIVIC-KALKI assistant. I can help you:\n\n**1.** Report a civic problem (potholes, garbage, water supply, broken street lights…)\n     *Tip: You can attach photo/document evidence directly using the 📎 button! Our AI will analyze the photo and fill the details for you.*\n**2.** Start a civic initiative (community project, campaign…)\n**3.** Check the status of your existing requests\n\nWhat would you like to do today?')}
+        ${renderAgentBubble('Hi. Tell me what is going on, in your own words, for example **there is a pothole outside my building**. I will ask only what I need, read it back to you, and send it when you say yes. You can attach a photo with the paperclip.')}
       </div>
 
       <div class="agent-input-container">
@@ -685,6 +684,12 @@ export async function renderAgentChat(params = {}, searchParams = null) {
 
   sendBtn.addEventListener('click', () => {
     sendMessage(inputEl.value);
+  });
+
+  // A tapped suggestion is sent as the answer.
+  getThread()?.addEventListener('click', (e) => {
+    const chip = e.target.closest('.assist-chip');
+    if (chip) sendMessage(chip.getAttribute('data-reply'));
   });
 
   // ── If launched from ChatBar — send first message immediately ──────────────

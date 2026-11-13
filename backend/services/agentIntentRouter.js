@@ -203,10 +203,13 @@ function findOption(message, options) {
   return byWord.length === 1 ? byWord[0] : null;
 }
 
-/** A place phrase such as "outside my building" or "near the bus stand". */
+/** A place phrase such as "outside my building" or "near the bus stand": a few words, cut at the next clause. */
 function findPlace(message) {
-  const m = String(message || '').match(/\b(outside|near|opposite|behind|beside|next to|in front of|at the|at|on)\s+([^.,;!?\n]{3,60})/i);
-  return m ? `${m[1]} ${m[2]}`.trim() : null;
+  const m = String(message || '').match(/\b(outside|near|opposite|behind|beside|next to|in front of|at the)\s+([^.,;!?\n]{3,60})/i);
+  if (!m) return null;
+  const rest = m[2].split(/\s+(?:has|have|had|is|are|was|were|for|since|and|but|which|that|because|so|it|its|in)\b/i)[0];
+  const words = rest.trim().split(/\s+/).slice(0, 6).join(' ');
+  return words.length >= 3 ? `${m[1]} ${words}`.trim() : null;
 }
 
 /**

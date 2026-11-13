@@ -341,7 +341,7 @@ async function renderCitizenDash(container, user, metaData) {
                   <span>Civic Assistant</span>
                 </div>
                 <div class="ck-dark-sub">
-                  Report issues · Start initiatives · Check request status
+                  Say it in your own words. Nothing is sent until you confirm.
                 </div>
               </div>
             </div>
@@ -675,6 +675,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
   // 4. Thread message rendering helpers (Embedded inside dark card)
   function appendThreadHtml(html) {
     if (!threadEl) return;
+    threadEl.querySelectorAll('.assist-chips').forEach((el) => el.remove());
     threadEl.style.display = 'flex';
 
     const temp = document.createElement('div');
@@ -762,7 +763,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
         </div>
         <div class="ck-dark-confirm-card">
           <div class="ck-dark-confirm-title">
-            <span>📝</span> Review your request — Ready to submit
+            Ready to send. Is this right?
           </div>
           <p style="font-size:0.82rem; color:rgba(255,255,255,0.85); margin-bottom:12px;">
             ${escapeHtml((confirmText || '').split('\n\n')[0] || 'Please review your request summary before submitting.')}
@@ -770,10 +771,10 @@ function _attachCitizenCockpitEvents(user, myItems) {
           <div class="ck-dark-confirm-table">${rows}</div>
           <div class="ck-dark-confirm-actions" id="ck-dark-confirm-actions">
             <button type="button" id="ck-dark-confirm-submit-btn" class="ck-dark-btn-primary">
-              ✓ Submit Request
+              Send it
             </button>
             <button type="button" id="ck-dark-confirm-cancel-btn" class="ck-dark-btn-secondary">
-              ✗ Modify / Cancel
+              Cancel
             </button>
           </div>
         </div>
@@ -781,26 +782,21 @@ function _attachCitizenCockpitEvents(user, myItems) {
     `;
   }
 
-  function renderSuccessCard(entityId, entityName, capability) {
+  function renderSuccessCard(data) {
+    // The assistant's own words say who looks at it next; the first line is the reference, shown above.
+    const next = String(data.text || '').split('\n').slice(1).join(' ').replace(/\*\*/g, '').trim();
     return `
       <div class="ck-dark-msg-row ck-dark-msg-agent">
         <div class="ck-dark-avatar" style="width:28px; height:28px; background:#16a34a; box-shadow:none;">
           <svg width="16" height="16" fill="none" stroke="white" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
         </div>
-        <div class="ck-dark-success-card">
-          <div class="ck-dark-success-badge">
-            <span>🎉</span> Request #${entityId} Submitted!
-          </div>
-          <p style="font-size:0.85rem; color:#f1f5f9; margin-bottom:12px;">
-            <strong>${escapeHtml(entityName || capability)}</strong> has been submitted and shared with your local team in Shivajinagar.
-          </p>
+        <div class="ck-dark-success-card" role="status">
+          <div class="ck-dark-success-badge">Sent · ${escapeHtml(data.reference || `#${data.entity_id}`)}</div>
+          <p style="font-size:0.9rem; color:#f1f5f9; margin-bottom:6px;"><strong>${escapeHtml(data.entity_name || '')}</strong></p>
+          ${next ? `<p style="font-size:0.84rem; color:rgba(255,255,255,0.8); margin-bottom:12px;">${escapeHtml(next)}</p>` : ''}
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <a href="/entities/${entityId}" class="ck-dark-btn-primary">
-              View My Request →
-            </a>
-            <button type="button" id="ck-dark-new-case-btn" class="ck-dark-btn-secondary">
-              + File Another Issue
-            </button>
+            <a href="/entities/${Number(data.entity_id)}" class="ck-dark-btn-primary">Open my request →</a>
+            <button type="button" id="ck-dark-new-case-btn" class="ck-dark-btn-secondary">Something else</button>
           </div>
         </div>
       </div>
@@ -808,6 +804,12 @@ function _attachCitizenCockpitEvents(user, myItems) {
   }
 
   // 5. Core Send Message Function inside Dark Card
+  // A tapped suggestion is sent as the answer.
+  threadEl?.addEventListener('click', (e) => {
+    const chip = e.target.closest('.assist-chip');
+    if (chip) sendCockpitMessage(chip.getAttribute('data-reply'));
+  });
+
   async function sendCockpitMessage(textToSend, explicitFile = null) {
     const file = explicitFile || pendingFile;
     const cleanText = (textToSend || '').trim();
@@ -851,7 +853,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
       const data = res.data;
 
       if (data.type === 'confirm') {
-        appendThreadHtml(renderConfirmCard(data.summary || [], data.text));
+        appendThreadHtml(renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:'));
         setTimeout(() => {
           document.getElementById('ck-dark-confirm-submit-btn')?.addEventListener('click', () => {
             document.getElementById('ck-dark-confirm-actions')?.remove();
@@ -863,14 +865,17 @@ function _attachCitizenCockpitEvents(user, myItems) {
           });
         }, 50);
       } else if (data.type === 'submitted') {
-        appendThreadHtml(renderSuccessCard(data.entity_id, data.entity_name, data.capability));
+        appendThreadHtml(renderSuccessCard(data));
         setTimeout(() => {
           document.getElementById('ck-dark-new-case-btn')?.addEventListener('click', () => {
             resetCockpit();
           });
         }, 50);
       } else {
-        appendThreadHtml(renderAgentBubble(data.text || 'Understood. Please provide additional details or landmarks.'));
+        const chips = Array.isArray(data.options) && data.options.length
+          ? `<div class="assist-chips assist-chips-dark" role="group" aria-label="Suggested answers">${data.options.map((o) => `<button type="button" class="assist-chip" data-reply="${escapeHtml(o.value)}">${escapeHtml(o.label)}</button>`).join('')}</div>`
+          : '';
+        appendThreadHtml(renderAgentBubble(data.text || 'Tell me a little more.') + chips);
       }
     } catch (err) {
       document.getElementById('ck-dark-thinking')?.remove();
