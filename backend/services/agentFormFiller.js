@@ -615,14 +615,32 @@ async function startService(session, svc, user, wards, firstMessage) {
  * @param {Array} _unused  kept for the route's call signature
  * @param {object|null} attachedFile
  */
+/**
+ * What the chat page shows as the live form card: the same plain-language rows
+ * as the summary, and how many required things are still to come.
+ */
+function progressOf(session) {
+  if (!session || !session.service) return null;
+  const gaps = missing(session);
+  return {
+    service: session.service.label,
+    rows: summaryOf(session).filter((r) => r.value),
+    remaining: gaps.fields.length + (gaps.ward ? 1 : 0),
+  };
+}
+
 async function continueFormFilling(sessionId, userMessage, user, _unused = [], attachedFile = null) {
   const reply = await conversationTurn(sessionId, userMessage, user, attachedFile);
   const ask = reply && reply._ask;
   if (reply) delete reply._ask;
+  const session = sessions.get(sessionId);
+  if (reply && ['question', 'confirm'].includes(reply.type)) {
+    const progress = progressOf(session);
+    if (progress) reply.progress = progress;
+  }
   if (!reply || reply.type !== 'question') return reply;
 
   // The question is fixed; only its wording may be made more human (AI, checked).
-  const session = sessions.get(sessionId);
   if (!ask || !session || !session.service || reply.invalid || !ask.subjectWords.length) return { ...reply, voice: 'rules' };
   const said = String(userMessage || '').replace(/\[(?:User )?location:[^\]]*\]/gi, '').trim();
   const worded = await voice.speak({

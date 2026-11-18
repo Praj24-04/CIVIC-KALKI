@@ -205,6 +205,70 @@ function getInput() { return document.getElementById('agent-input'); }
 function getSendBtn() { return document.getElementById('agent-send-btn'); }
 function getAttachBtn() { return document.getElementById('agent-attach-btn'); }
 function getFileInput() { return document.getElementById('agent-file-input'); }
+function getCameraInput() { return document.getElementById('agent-camera-input'); }
+
+// ── Photos are shrunk in the browser before upload ────────────────────────────
+// A phone photo is often 4–8 MB; the assistant only needs to see the problem.
+// Larger than 1600 px on its long side, or bigger than 1 MB, becomes a JPEG at
+// that size. If the browser cannot read the image, the original is sent.
+const MAX_PHOTO_SIDE = 1600;
+const SHRINK_ABOVE_BYTES = 1024 * 1024;
+const SERVER_LIMIT_BYTES = 10 * 1024 * 1024;
+
+async function shrinkPhoto(file) {
+  if (!file || !/^image\/(jpeg|png|webp|heic|heif)$/i.test(file.type)) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_PHOTO_SIDE / Math.max(bitmap.width, bitmap.height));
+    const isJpeg = /jpe?g/i.test(file.type);
+    if (scale === 1 && file.size <= SHRINK_ABOVE_BYTES && isJpeg) { bitmap.close?.(); return file; }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+    if (!blob || (blob.size >= file.size && isJpeg)) return file;
+    const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    return new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() });
+  } catch {
+    return file;
+  }
+}
+
+async function takeFile(file) {
+  if (!file) return;
+  const ready = await shrinkPhoto(file);
+  if (ready.size > SERVER_LIMIT_BYTES) {
+    appendHtml(renderAgentBubble('That file is larger than 10 MB, so I cannot take it. Please choose a smaller one.'));
+    return;
+  }
+  pendingFile = ready;
+  updateAttachmentPreview();
+  getInput()?.focus();
+}
+
+// ── Live form card: what has been filled in so far ─────────────────────────────
+
+function updateFormCard(progress) {
+  const card = document.getElementById('agent-form-card');
+  if (!card) return;
+  if (!progress || !Array.isArray(progress.rows)) {
+    card.hidden = true;
+    card.innerHTML = '';
+    return;
+  }
+  const rows = progress.rows.map((r) => `
+    <div class="agent-form-card-row"><span>${escapeHtml(r.label)}</span><strong>${escapeHtml(r.value)}</strong></div>`).join('');
+  const left = Number(progress.remaining) || 0;
+  card.innerHTML = `
+    <div class="agent-form-card-head">
+      <span>${escapeHtml(progress.service || 'Your request')}</span>
+      <span class="agent-form-card-left">${left === 0 ? 'Ready to check' : `${left} more to go`}</span>
+    </div>
+    <div class="agent-form-card-rows">${rows}</div>`;
+  card.hidden = false;
+}
 
 function appendHtml(html) {
   getThread()?.querySelectorAll('.assist-chips').forEach((el) => el.remove());
@@ -230,9 +294,10 @@ function setInputEnabled(enabled) {
     sendBtn.disabled = !enabled;
     sendBtn.style.opacity = enabled ? '1' : '0.5';
   }
-  if (attachBtn) {
-    attachBtn.disabled = !enabled;
-    attachBtn.style.opacity = enabled ? '1' : '0.5';
+  for (const btn of [attachBtn, document.getElementById('agent-camera-btn')]) {
+    if (!btn) continue;
+    btn.disabled = !enabled;
+    btn.style.opacity = enabled ? '1' : '0.5';
   }
 }
 
@@ -319,6 +384,8 @@ async function sendMessage(message, explicitFile = null) {
 
     const data = res.data;
     pendingConfirmData = null;
+    if (data.progress) updateFormCard(data.progress);
+    else if (['submitted', 'cancelled', 'status'].includes(data.type)) updateFormCard(null);
 
     if (data.type === 'confirm') {
       pendingConfirmData = data;
@@ -458,6 +525,28 @@ export async function renderAgentChat(params = {}, searchParams = null) {
       .agent-attach-btn:hover {
         background: var(--bg); color: var(--primary);
       }
+      .agent-form-card {
+        background: var(--surface-2, var(--surface)); border: 1px solid var(--border);
+        border-top: none; padding: 10px 20px; font-size: 0.82rem;
+      }
+      .agent-form-card[hidden] { display: none; }
+      .agent-form-card-head {
+        display: flex; justify-content: space-between; gap: 12px;
+        font-weight: 700; color: var(--text-primary); margin-bottom: 6px;
+      }
+      .agent-form-card-left { font-weight: 600; color: var(--primary); }
+      .agent-form-card-rows { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+      .agent-form-card-row { display: flex; gap: 6px; min-width: 0; max-width: 100%; }
+      .agent-form-card-row span { color: var(--text-muted); flex-shrink: 0; }
+      .agent-form-card-row strong {
+        font-weight: 600; color: var(--text-primary);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px;
+      }
+      @media (max-width: 600px) {
+        .agent-form-card { padding: 8px 14px; }
+        .agent-form-card-rows { max-height: 64px; overflow-y: auto; }
+        .agent-form-card-row strong { max-width: 200px; }
+      }
       #agent-input {
         flex:1; padding:10px 14px; border-radius:20px;
         border:1px solid var(--border-strong); background:var(--bg);
@@ -571,9 +660,11 @@ export async function renderAgentChat(params = {}, searchParams = null) {
         </div>
       </div>
 
+      <div id="agent-form-card" class="agent-form-card" hidden aria-live="polite" aria-label="Details filled in so far"></div>
+
       <div id="agent-thread" role="log" aria-live="polite" aria-label="Conversation with Civic Assistant">
         <!-- Initial greeting -->
-        ${renderAgentBubble('Hi. Tell me what is going on, in your own words, for example **there is a pothole outside my building**. I will ask only what I need, read it back to you, and send it when you say yes. You can attach a photo with the paperclip.')}
+        ${renderAgentBubble('Hi. Tell me what is going on, in your own words, for example **there is a pothole outside my building**. I will ask only what I need, read it back to you, and send it when you say yes. You can add a photo with the paperclip, or take one with the camera.')}
       </div>
 
       <div class="agent-input-container">
@@ -598,6 +689,27 @@ export async function renderAgentChat(params = {}, searchParams = null) {
             id="agent-file-input"
             style="display:none;"
             accept="image/*,.pdf,.doc,.docx,.txt,.csv"
+          />
+          <button
+            id="agent-camera-btn"
+            type="button"
+            class="agent-attach-btn"
+            title="Take a photo"
+            aria-label="Take a photo"
+          >
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <circle cx="12" cy="13" r="3.5" stroke-width="2" />
+            </svg>
+          </button>
+          <!-- capture opens the rear camera on phones; desktops show a file picker -->
+          <input
+            type="file"
+            id="agent-camera-input"
+            style="display:none;"
+            accept="image/*"
+            capture="environment"
           />
 
           <textarea
@@ -663,12 +775,14 @@ export async function renderAgentChat(params = {}, searchParams = null) {
     fileInput?.click();
   });
 
-  fileInput?.addEventListener('change', (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    pendingFile = file;
-    updateAttachmentPreview();
-    inputEl.focus();
+  fileInput?.addEventListener('change', (e) => takeFile(e.target.files?.[0]));
+
+  const cameraBtn = document.getElementById('agent-camera-btn');
+  const cameraInput = getCameraInput();
+  cameraBtn?.addEventListener('click', () => cameraInput?.click());
+  cameraInput?.addEventListener('change', (e) => {
+    takeFile(e.target.files?.[0]);
+    e.target.value = '';
   });
 
   // Auto-grow textarea

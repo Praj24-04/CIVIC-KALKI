@@ -300,6 +300,24 @@ describe('Civic assistant', () => {
       expect(await recordsNamed('The drain on our road')).toHaveLength(1);
     });
 
+    test('every question and the summary carry the live form card', async () => {
+      const id = sid();
+      let r = await say(id, 'The garbage bins on my street have not been emptied for a week');
+      expect(r.progress.service).toBeTruthy();
+      expect(r.progress.rows.find((row) => row.label === 'What').value).toMatch(/garbage bins/i);
+      const before = r.progress.remaining;
+      expect(before).toBeGreaterThan(0);
+      r = await say(id, 'sanitation');
+      expect(r.progress.remaining).toBe(before - 1);
+      expect(r.progress.rows.map((row) => row.value)).toContain('Sanitation');
+      for (const t of ['moderate', WARD]) r = await say(id, t);
+      r = await skipExtras(id, r);
+      expect(r.type).toBe('confirm');
+      expect(r.progress.remaining).toBe(0);
+      const cancelled = await say(id, 'cancel');
+      expect(cancelled.progress).toBeUndefined();
+    });
+
     test('two "yes" at the same moment (double tap) file one record', async () => {
       const id = sid();
       let r;
