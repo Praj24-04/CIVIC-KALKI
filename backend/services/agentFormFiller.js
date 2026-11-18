@@ -791,6 +791,10 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   // ── Confirmation: only a plain yes sends it ───────────────────────────────
   if (session.phase === 'confirming') {
     if (read.intent === 'confirm') {
+      // A second "yes" (double tap, retry) while the first is being filed must not
+      // file it again. Checked and set with no await in between.
+      if (session.filing) return { type: 'busy', text: 'I am sending it now, one moment.' };
+      session.filing = true;
       try {
         const { entity, who } = await fileRequest(session, user, sessionId);
         const files = session.pendingFiles.map((f) => f.originalName);
@@ -810,6 +814,8 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
         console.error('[CIVIC ASSISTANT] Filing failed:', err.message);
         // Still unconfirmed-and-unsent: the citizen can try again with one word.
         return { type: 'error', text: 'Sorry, I could not send that just now, and nothing was saved. Say **yes** to try again, or tell me what to change.' };
+      } finally {
+        session.filing = false;
       }
     }
     if (read.intent === 'deny' && !Object.keys(read.values).length && !read.ward) {

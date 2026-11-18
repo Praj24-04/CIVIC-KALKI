@@ -299,6 +299,17 @@ describe('Civic assistant', () => {
       expect(r.type).toBe('submitted');
       expect(await recordsNamed('The drain on our road')).toHaveLength(1);
     });
+
+    test('two "yes" at the same moment (double tap) file one record', async () => {
+      const id = sid();
+      let r;
+      for (const t of ['The water tank on our street has been leaking for days', 'utilities', 'moderate', WARD]) r = await say(id, t);
+      r = await skipExtras(id, r);
+      expect(r.type).toBe('confirm');
+      const [a, b] = await Promise.all([say(id, 'yes'), say(id, 'yes')]);
+      expect([a.type, b.type].sort()).toEqual(['busy', 'submitted']);
+      expect(await recordsNamed('The water tank on our street')).toHaveLength(1);
+    });
   });
 
   // ── Rules enforced in code, whatever the model says ────────────────────────
