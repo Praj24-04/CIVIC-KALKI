@@ -44,10 +44,18 @@ describe('Civic assistant', () => {
   const sid = () => `assistant-test-${Date.now()}-${seq += 1}`;
   const say = (id, text, who = citizenUser) => continueFormFilling(id, text, who);
   const recordsNamed = (fragment) => prisma.entity.findMany({ where: { owner_user_id: citizen.user.user_id, name: { contains: fragment } } });
-  // The exact spot and a photo are asked for once each; these flows skip them.
+  // Optional questions (the exact spot, a photo, and the form's optional details
+  // such as since when or a call-back number) can each be skipped; these flows skip them.
+  const isOptionalAsk = (id) => {
+    const s = _sessions.get(id);
+    if (!s || !s.asked) return false;
+    if (['__place', '__photo'].includes(s.asked)) return true;
+    const f = s.service && s.service.fields.find((x) => x.key === s.asked);
+    return Boolean(f && !f.mandatory && f.chatAsk);
+  };
   const skipExtras = async (id, r) => {
     let out = r;
-    while (out.type === 'question' && ['__place', '__photo'].includes(_sessions.get(id)?.asked)) out = await say(id, 'skip');
+    while (out.type === 'question' && isOptionalAsk(id)) out = await say(id, 'skip');
     return out;
   };
 
@@ -150,7 +158,7 @@ describe('Civic assistant', () => {
       const post = (message) => request(app).post('/agent/chat').set(citizen.headers).send({ sessionId: id, message });
       let res;
       for (const t of ['The streetlight on my lane is broken and it is dark at night', 'safety', 'moderate', WARD]) res = await post(t);
-      while (res.body.data.type === 'question' && ['__place', '__photo'].includes(_sessions.get(id)?.asked)) res = await post('skip');
+      while (res.body.data.type === 'question' && isOptionalAsk(id)) res = await post('skip');
       expect(res.body.data.type).toBe('confirm');
       res = await post('yes');
       expect(res.status).toBe(200);
@@ -394,6 +402,133 @@ describe('Civic assistant', () => {
   });
 
   // ── With the AI understanding the words ────────────────────────────────────
+  // ── What a coordinator needs (19 Nov) ────────────────────────────────────
+  describe('what a coordinator needs', () => {
+    const { _soundsLike, _isThin } = require('../services/agentFormFiller');
+    const answer = async (id, r, plan) => {
+      let out = r;
+      for (let i = 0; i < 14 && out.type === 'question'; i += 1) {
+        const asked = _sessions.get(id).asked;
+        out = await say(id, plan[asked] !== undefined ? plan[asked] : 'skip');
+      }
+      return out;
+    };
+
+    test('a topic alone is not a complaint: it asks what exactly is happening, first', async () => {
+      expect(_isThin('i want to lodge a complain regarding water')).toBe(true);
+      expect(_isThin('I have a complaint about the road')).toBe(true);
+      expect(_isThin('no water in our taps since Monday')).toBe(false);
+      expect(_isThin("There's a pothole outside my building")).toBe(false);
+
+      const id = sid();
+      let r = await say(id, 'i want to lodge a complain regarding water');
+      expect(_sessions.get(id).asked).toBe('__detail');
+      expect(r.text).toMatch(/What exactly is happening with the water\?/);
+      r = await say(id, 'no water is coming in our taps since 2 days, the whole building is without water');
+      expect(r.text).toMatch(/^Thanks, that helps\./);
+      expect(_sessions.get(id).draft.complaint_details).toBe('no water is coming in our taps since 2 days, the whole building is without water');
+    });
+
+    test('the "yes" that confirms which service is never added to the complaint', async () => {
+      const id = sid();
+      await say(id, 'hello');
+      const s = _sessions.get(id);
+      s.phase = 'choosing';
+      s.choices = [grievance.entity_type_id];
+      s.said = ['i want to lodge a complain regarding water'];
+      let r = await say(id, 'yes');
+      expect(_sessions.get(id).asked).toBe('__detail');
+      r = await say(id, 'the pipeline near our gate burst and water is flowing on the road');
+      expect(_sessions.get(id).draft.complaint_details).not.toMatch(/\byes\b/i);
+      expect(_sessions.get(id).draft.complaint_details).toBe('the pipeline near our gate burst and water is flowing on the road');
+    });
+
+    test('the record carries what a coordinator needs: since when, who is affected, the spot, a call-back number', async () => {
+      const id = sid();
+      let r = await say(id, 'no water is coming in our taps since 2 days, the whole building is without water');
+      r = await answer(id, r, {
+        category: 'Water Supply', severity: 'Severe', __ward: WARD, __place: 'near the main gate', __photo: 'no photo',
+        date_of_incident: 'since 2 days', affected_scope: 'My building or society', reporter_phone: '98765 43210',
+      });
+      expect(r.type).toBe('confirm');
+      const twoDaysAgo = new Date(Date.now() - 2 * 86400000);
+      const iso = new Date(twoDaysAgo.getTime() - twoDaysAgo.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      expect(_sessions.get(id).draft).toMatchObject({
+        category: 'Water Supply', severity: 'Severe', date_of_incident: iso,
+        affected_scope: 'My building or society', reporter_phone: '98765 43210',
+      });
+      r = await say(id, 'yes');
+      const e = await prisma.entity.findUnique({ where: { entity_id: r.entity_id }, include: { parameterValues: { include: { parameterMaster: true } } } });
+      const values = Object.fromEntries(e.parameterValues.map((v) => [v.parameterMaster.field_key, v.value]));
+      expect(values).toMatchObject({ affected_scope: 'My building or society', date_of_incident: iso });
+      expect(e.location).toBe('near the main gate');
+    });
+
+    test('"outside my building" is a place, not an answer to "who is affected"', async () => {
+      const id = sid();
+      await say(id, "There's a pothole outside my building");
+      expect(_sessions.get(id).draft.affected_scope).toBeUndefined();
+      expect(_sessions.get(id).place).toMatch(/my building/);
+    });
+
+    test('a topic answer gets its topic added when the answer does not name it', async () => {
+      const id = sid();
+      await say(id, 'i want to lodge a complain regarding water');
+      await say(id, 'it has been dirty and smelly for three days now');
+      expect(_sessions.get(id).draft.complaint_details).toBe('Water: it has been dirty and smelly for three days now');
+    });
+
+    test('every optional question can be skipped, and comes after the problem questions', async () => {
+      const id = sid();
+      let r = await say(id, "There's a pothole outside my building");
+      const order = [];
+      for (let i = 0; i < 14 && r.type === 'question'; i += 1) {
+        const asked = _sessions.get(id).asked;
+        order.push(asked);
+        r = await say(id, { category: 'Infrastructure', severity: 'Severe', __ward: WARD }[asked] || 'skip');
+      }
+      expect(r.type).toBe('confirm');
+      expect(order.slice(-3)).toEqual(['date_of_incident', 'affected_scope', 'reporter_phone']);
+      expect(order.indexOf('__photo')).toBeLessThan(order.indexOf('date_of_incident'));
+    });
+
+    test('a description given as a choice answer is kept as detail, and the choice is asked again', async () => {
+      const id = sid();
+      let r = await say(id, "There's a pothole outside my building");
+      r = await say(id, 'infrastructure');
+      expect(_sessions.get(id).asked).toBe('severity');
+      r = await say(id, 'two scooters slipped there last night and it fills with water when it rains');
+      expect(r.text).toMatch(/^Thanks, I have added that to the details\./);
+      expect(_sessions.get(id).asked).toBe('severity');
+      expect(_sessions.get(id).draft.complaint_details).toMatch(/two scooters slipped there last night/);
+    });
+
+    test('area names are forgiving: spacing, extra words, small typos; a near miss asks "did you mean"', async () => {
+      const id = sid();
+      let r = await say(id, "There's a pothole outside my building");
+      for (const t of ['infrastructure', 'severe']) r = await say(id, t);
+      expect(_sessions.get(id).asked).toBe('__ward');
+      const spaced = WARD.replace(/^Testward/, 'test ward '); // "test ward 1795…" = "Testward1795…"
+      r = await say(id, `its in ${spaced}`);
+      expect(_sessions.get(id).ward.name).toBe(WARD);
+
+      const { closeWards, findWard } = require('../services/agentIntentRouter');
+      const W = ['Kothrud', 'Shivajinagar', 'Aundh', 'Hadapsar'].map((name, i) => ({ id: i, name }));
+      expect(findWard('its in shivaji nagar', W).name).toBe('Shivajinagar');
+      expect(findWard('shivajinagr', W).name).toBe('Shivajinagar');
+      expect(findWard('kothrood', W)).toBeNull();
+      expect(closeWards('kothrood', W).map((w) => w.name)).toEqual(['Kothrud']);
+      expect(closeWards('Atlantis', W)).toEqual([]);
+    });
+
+    test('a service description that is not an action is not read out as one', () => {
+      expect(_soundsLike({ label: 'Automatically created or submitted grievance issue', name: 'Grievance' }))
+        .toBe('It sounds like this is a grievance request.');
+      expect(_soundsLike({ label: 'Report a problem that needs fixing', name: 'Grievance' }))
+        .toBe('It sounds like you want to report a problem that needs fixing.');
+    });
+  });
+
   // ── Area question, title and speed (19 Nov) ───────────────────────────────
   describe('area question, title and speed', () => {
     const { _loadWards, _ruleSubject } = require('../services/agentFormFiller');
@@ -413,7 +548,7 @@ describe('Civic assistant', () => {
       expect(r.text).not.toContain(WARD);
       // Only an answer that matches no area brings up the areas this city covers.
       const miss = await say(id, 'Atlantis');
-      expect(miss.text).toMatch(/I do not know that area yet/);
+      expect(miss.text).toMatch(/I could not find "Atlantis" among the areas we cover/);
     });
 
     test('with the phone\'s location, the area it is in is offered; "somewhere else" asks openly and is remembered', async () => {
@@ -481,7 +616,7 @@ describe('Civic assistant', () => {
         const id = sid();
         let r = await say(id, 'I want to lodge a complaint regarding the pothole outside my building gate');
         expect(kinds).toEqual(expect.arrayContaining(['choose', 'read']));
-        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo']) {
+        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo', 'skip', 'skip', 'skip']) {
           if (r.type === 'confirm') break;
           kinds.length = 0;
           r = await say(id, t);
@@ -493,7 +628,7 @@ describe('Civic assistant', () => {
       test('an AI title is used, labelled, and is exactly what gets filed', async () => {
         const id = sid();
         let r = await say(id, 'I want to lodge a complaint regarding the pothole outside my building gate');
-        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo']) if (r.type !== 'confirm') r = await say(id, t);
+        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo', 'skip', 'skip', 'skip']) if (r.type !== 'confirm') r = await say(id, t);
         expect(r.type).toBe('confirm');
         expect(r.summary[0]).toEqual({ label: 'What (title worded by AI)', value: `Pothole near the building gate in ${WARD}` });
         r = await say(id, 'yes');
@@ -541,7 +676,7 @@ describe('Civic assistant', () => {
         title = 'Complaint regarding pothole';
         const id = sid();
         let r = await say(id, 'I want to lodge a complaint regarding the pothole outside my building gate');
-        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo']) if (r.type !== 'confirm') r = await say(id, t);
+        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo', 'skip', 'skip', 'skip']) if (r.type !== 'confirm') r = await say(id, t);
         expect(r.summary[0]).toEqual({ label: 'What', value: `Pothole outside my building gate in ${WARD}` });
 
         expect(acceptableTitle('Overflowing garbage bins on main road')).toBe(true);
@@ -569,7 +704,7 @@ describe('Civic assistant', () => {
       // The spot is known ("outside my building"), so only the photo is asked for.
       expect(r.type).toBe('question');
       expect(r.text).toMatch(/photo/i);
-      r = await say(id, 'no photo');
+      r = await skipExtras(id, await say(id, 'no photo'));
       expect(r.type).toBe('confirm');
       expect(_sessions.get(id).draft).toMatchObject({ category: 'Infrastructure', severity: 'Severe' });
     });
@@ -594,7 +729,7 @@ describe('Civic assistant', () => {
       expect(r.text).toMatch(/photo/i);
       expect(r.options.map((o) => o.value)).toEqual(['__attach_photo', 'no photo']);
 
-      r = await say(id, 'no photo');
+      r = await skipExtras(id, await say(id, 'no photo'));
       expect(r.type).toBe('confirm');
       expect(r.text).toMatch(/Near the old temple on Main Road/);
       // Neither is asked again, even after a change at the summary.
@@ -686,7 +821,9 @@ describe('Civic assistant', () => {
         .field('sessionId', id).field('message', '')
         .attach('attachment', Buffer.from('fake image bytes'), { filename: 'tiles.png', contentType: 'image/png' });
       expect(up.status).toBe(200);
-      for (const t of ['infrastructure', 'moderate', WARD]) await post(t);
+      let last;
+      for (const t of ['infrastructure', 'moderate', WARD]) last = await post(t);
+      while (last.body.data.type === 'question' && isOptionalAsk(id)) last = await post('skip');
       const res = await post('yes');
       expect(res.body.data.type).toBe('submitted');
       expect(res.body.data.files).toEqual(['tiles.png']);

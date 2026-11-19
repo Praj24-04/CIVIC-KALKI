@@ -293,15 +293,17 @@ const MODULE_DEFINITIONS = [
             name: 'Complaint',
             parameters: [
               { field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', control_type: 'textarea', mandatory: true, validation_rule: 'required|min:20' },
-              { field_key: 'category', label: 'Grievance Category', field_type: 'select', control_type: 'dropdown', options: { choices: ['Infrastructure', 'Sanitation', 'Safety', 'Utilities', 'Public Transport', 'Water Supply', 'Noise Pollution', 'Other'] }, mandatory: true, validation_rule: 'required' },
-              { field_key: 'severity', label: 'Severity', field_type: 'select', control_type: 'dropdown', options: { choices: ['Minor', 'Moderate', 'Severe', 'Critical'], default: 'Moderate' }, mandatory: true, validation_rule: 'required' },
+              // options.chat tells the civic assistant how to ask a field, and to ask optional ones too.
+              { field_key: 'category', label: 'Grievance Category', field_type: 'select', control_type: 'dropdown', options: { choices: ['Infrastructure', 'Sanitation', 'Safety', 'Utilities', 'Public Transport', 'Water Supply', 'Noise Pollution', 'Other'], chat: { question: 'What kind of problem is it: Infrastructure, Sanitation, Safety, Utilities, Public Transport, Water Supply, Noise Pollution or Other?' } }, mandatory: true, validation_rule: 'required' },
+              { field_key: 'severity', label: 'Severity', field_type: 'select', control_type: 'dropdown', options: { choices: ['Minor', 'Moderate', 'Severe', 'Critical'], default: 'Moderate', chat: { question: 'How bad is it right now? Pick the severity that fits: Minor, Moderate, Severe or Critical.' } }, mandatory: true, validation_rule: 'required' },
+              { field_key: 'affected_scope', label: 'Who Is Affected', field_type: 'select', control_type: 'dropdown', options: { choices: ['Just me', 'My building or society', 'My street or lane', 'The whole area'], chat: { ask: true, order: 2, question: 'Who is affected by this: just me, my building or society, my street or lane, or the whole area?' } }, mandatory: false },
             ],
           },
           {
             name: 'Reference',
             parameters: [
               { field_key: 'reference_number', label: 'Reference Number', field_type: 'text', control_type: 'input', mandatory: false },
-              { field_key: 'date_of_incident', label: 'Date of Incident', field_type: 'date', control_type: 'datepicker', mandatory: false },
+              { field_key: 'date_of_incident', label: 'Date of Incident', field_type: 'date', control_type: 'datepicker', mandatory: false, options: { chat: { ask: true, order: 1, question: 'Since when has this been happening? You can say "today", "since Monday" or give a date.' } } },
             ],
           },
         ],
@@ -313,7 +315,7 @@ const MODULE_DEFINITIONS = [
             name: 'Reporter',
             parameters: [
               { field_key: 'reporter_name', label: 'Reporter Name', field_type: 'text', control_type: 'input', mandatory: true, validation_rule: 'required' },
-              { field_key: 'reporter_phone', label: 'Reporter Phone', field_type: 'phone', control_type: 'input', mandatory: false },
+              { field_key: 'reporter_phone', label: 'Reporter Phone', field_type: 'phone', control_type: 'input', mandatory: false, options: { chat: { ask: true, order: 3, question: 'Can the team call you if they need to know more? Share a phone number, or say skip.' } } },
               { field_key: 'reporter_email', label: 'Reporter Email', field_type: 'email', control_type: 'input', mandatory: false },
             ],
           },

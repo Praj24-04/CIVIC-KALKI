@@ -100,6 +100,16 @@ function clearSession(sessionId) {
 
 // ── Metadata: services, fields, wards ────────────────────────────────────────
 
+// A service description that reads as something the citizen does.
+const ACTION_START = /^(report|start|apply|register|request|join|offer|volunteer|post|create|record|track|file|book|raise|tell|ask|share|propose|sign up|list|find|get|set up|build|organi[sz]e)\b/i;
+
+/** "It sounds like you want to report a problem…", or a plain fallback for a description that is not an action. */
+function soundsLike(service) {
+  const label = String(service.label || '').trim();
+  if (ACTION_START.test(label)) return `It sounds like you want to ${label.charAt(0).toLowerCase()}${label.slice(1)}.`;
+  return `It sounds like this is a ${String(service.name || 'request').toLowerCase()} request.`;
+}
+
 function plainLabelOfService(type) {
   // The first sentence of the description is how the service is described to a citizen.
   const d = String(type.description || '').split(/[:.]/)[0].trim();
@@ -194,6 +204,11 @@ function describeService(svc) {
       rule: String(p.validation_rule || ''),
       dependsOn: p.options && p.options.depends_on ? p.options.depends_on : null,
       defaultValue: p.options && p.options.default !== undefined ? String(p.options.default) : null,
+      // Form metadata can ask the assistant to ask an optional field too, in its
+      // own words: options.chat = { ask: true, question: "Since when…?" }.
+      chatAsk: Boolean(p.options && p.options.chat && p.options.chat.ask),
+      chatQuestion: p.options && p.options.chat && typeof p.options.chat.question === 'string' ? p.options.chat.question : null,
+      chatOrder: p.options && p.options.chat && Number.isFinite(Number(p.options.chat.order)) ? Number(p.options.chat.order) : 999,
     };
     if (type === 'file') fileFields.push(base);
     else if (type !== 'location' && !TITLE_KEY.test(base.key)) fields.push(base);
@@ -227,6 +242,21 @@ function parseDate(text) {
   if (/\byesterday\b|\blast night\b/.test(n)) return iso(new Date(today.getTime() - 86400000));
   const ago = n.match(/(\d{1,3})\s+days?\s+ago/);
   if (ago) return iso(new Date(today.getTime() - Number(ago[1]) * 86400000));
+  // "since 3 days", "for 2 days", "2 din se" (Hindi): counted back from today.
+  const forDays = n.match(/(?:since|for|from|past|last)\s+(\d{1,3})\s+(days?|weeks?)\b|(\d{1,3})\s+(din|days?)\s+(?:se|now)\b/);
+  if (forDays) {
+    const count = Number(forDays[1] || forDays[3]);
+    const unitDays = /week/.test(forDays[2] || '') ? 7 : 1;
+    return iso(new Date(today.getTime() - count * unitDays * 86400000));
+  }
+  if (/\b(?:since|for)\s+(?:a|one)\s+week\b|\blast week\b/.test(n)) return iso(new Date(today.getTime() - 7 * 86400000));
+  // "since Monday": the most recent such day before today.
+  const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const named = days.findIndex((d) => new RegExp(`\\b${d}\\b`).test(n));
+  if (named >= 0) {
+    const back = ((today.getDay() - named + 7) % 7) || 7;
+    return iso(new Date(today.getTime() - back * 86400000));
+  }
   let m = String(text).match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
   m = String(text).match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
@@ -291,11 +321,16 @@ function photoField(service) {
  */
 function missing(session) {
   const { fields } = session.service;
-  const out = fields.filter((f) => f.mandatory && isActive(f, session.draft, fields) && session.draft[f.key] === undefined);
+  const open = (f) => isActive(f, session.draft, fields) && session.draft[f.key] === undefined;
+  const skipped = session.skipped || [];
   return {
-    fields: out,
+    detail: Boolean(session.needDetail),
+    fields: fields.filter((f) => f.mandatory && open(f)),
     ward: !session.ward,
     place: !session.place && !session.askedPlace,
+    // Optional details the form asks the assistant to collect; each can be skipped.
+    extras: fields.filter((f) => !f.mandatory && f.chatAsk && open(f) && !skipped.includes(f.key))
+      .sort((a, b) => a.chatOrder - b.chatOrder),
     photo: Boolean(photoField(session.service)) && !session.pendingFiles.length && !session.askedPhoto,
   };
 }
@@ -315,6 +350,8 @@ function quickReplies(values) {
 }
 
 function questionFor(field) {
+  // The form's own wording for the assistant, when it has one.
+  if (field.chatQuestion) return field.chatQuestion;
   if (field.type === 'choice') return `Which ${field.plain} fits best: ${listOf(field.options)}?`;
   if (field.type === 'date') return `When was this? You can say "today", "yesterday" or give a date.`;
   if (field.type === 'number') return `What is the ${field.plain}? A number is fine.`;
@@ -339,6 +376,30 @@ function wardQuestion(session) {
 }
 
 const SOMEWHERE_ELSE = /^(somewhere else|some where else|elsewhere|another (area|place|one)|a different (area|place)|different (area|place)|other (area|place)|not (there|here)|no)$/;
+
+// Words that only say "I am complaining" or name a topic, not what is wrong.
+const VAGUE_LIST = ['complaint', 'complain', 'complaints', 'grievance', 'issue', 'issues', 'problem', 'problems',
+  'regarding', 'about', 'related', 'lodge', 'file', 'register', 'raise', 'report', 'want', 'like', 'need', 'help',
+  'please', 'kindly', 'sir', 'madam', 'there', 'some', 'any', 'one', 'my', 'our', 'area', 'side', 'thing', 'things'];
+// Compared in the same shortened form the tokenizer produces ("regarding" -> "regard").
+const VAGUE_WORDS = new Set([...VAGUE_LIST, ...VAGUE_LIST.flatMap((w) => understanding.tokens(w))]);
+
+/**
+ * Does the opening say what is actually wrong? "I want to lodge a complaint
+ * regarding water" names a topic; "no water since Monday" says what is wrong.
+ * A coordinator cannot act on a topic alone.
+ */
+function isThin(text) {
+  const words = understanding.tokens(ruleSubject(text));
+  const content = words.filter((w) => !VAGUE_WORDS.has(w));
+  return content.length <= 1;
+}
+
+function detailQuestion(session) {
+  const topic = understanding.tokens(ruleSubject(session.said[0] || '')).filter((w) => !VAGUE_WORDS.has(w))[0];
+  const about = topic ? ` with the ${topic}` : '';
+  return `I am sorry you are dealing with this. What exactly is happening${about}? Tell me what you see, in a sentence or two, so the team knows what to fix.`;
+}
 
 function placeQuestion(session) {
   return `Where exactly is it${session.ward ? ` in ${session.ward.name}` : ''}? A landmark or street name helps the team find the spot.`;
@@ -374,7 +435,7 @@ const TITLE_PREAMBLES = [
   /^(?:i|we)\s+(?:have|got)\s+(?:a|an|one|some)?\s*(?=(?:complaint|grievance|issue|problem|report|request)\b)/i,
   /^(?:i|we)\s+(?:want to|would like to)?\s*report\b\s*/i,
   /^(?:a|an|my|our|one|this)\s+(?=(?:complaint|grievance|issue|problem|report|request)\b)/i,
-  /^(?:complaint|grievance|report|request)s?\b\s*/i,
+  /^(?:complaint|complain|grievance|report|request)s?\b\s*/i,
   /^(?:issue|problem)s?\s+(?=(?:regarding|about|on|for|of|with|related|concerning)\b)/i,
   /^(?:regarding|about|on|for|of|against|related to|concerning|with)\s+/i,
   /^(?:there'?s|there is|there are|there has been)\s+/i,
@@ -628,6 +689,9 @@ function nextStep(session, wards, lead = '') {
     session.asked = key;
     return { type: 'question', text: say(text), options, _ask: { subjectWords, mustInclude } };
   };
+  if (gaps.detail) {
+    return ask('__detail', detailQuestion(session), undefined, ['what', 'happening', 'tell', 'describe', 'see']);
+  }
   if (gaps.fields.length) {
     const f = gaps.fields[0];
     const words = [...understanding.tokens(f.plain), f.plain, ...(f.type === 'date' ? ['when'] : [])];
@@ -647,6 +711,14 @@ function nextStep(session, wards, lead = '') {
     session.askedPhoto = true;
     return ask('__photo', PHOTO_QUESTION, PHOTO_CHIPS, PHOTO_WORDS);
   }
+  // Last, a few quick optional details the form asks for (since when, who is
+  // affected, a number to call back): each can be skipped.
+  if (gaps.extras.length) {
+    const f = gaps.extras[0];
+    const words = [...understanding.tokens(f.plain), f.plain, ...(f.type === 'date' ? ['when', 'since'] : [])];
+    const chips = [...(quickReplies(f.options) || []), { label: 'Skip', value: 'skip' }];
+    return ask(f.key, questionFor(f), chips, f.options.length > 8 ? [] : words, f.options.length > 8 ? [] : f.options);
+  }
   return confirmReply(session, lead ? `${lead} Here is what I will send:` : 'Here is what I will send:');
 }
 
@@ -660,10 +732,13 @@ async function startService(session, svc, user, wards, firstMessage) {
   for (const f of session.service.fields) {
     if ((PERSON_NAME.test(f.key) || PERSON_NAME.test(f.label)) && dbUser?.name) session.draft[f.key] = dbUser.name;
   }
-  // The citizen's own words are the description, if they say enough.
+  // The citizen's own words are the description, if they say what is wrong.
+  // A topic alone ("a complaint regarding water") is followed by one question
+  // about what exactly is happening, before anything else.
   const story = session.service.fields.find((f) => f.type === 'longtext' && f.mandatory);
   const words = String(firstMessage || '').replace(/\[.*?\]/g, '').trim();
-  if (story && validateValue(story, words).ok && understanding.tokens(words).length >= 2) session.draft[story.key] = words;
+  session.needDetail = Boolean(story) && isThin(words);
+  if (story && !session.needDetail && validateValue(story, words).ok && understanding.tokens(words).length >= 2) session.draft[story.key] = words;
 
   const read = await understanding.readDetails({
     message: firstMessage, fields: session.service.fields, wards, askedKey: null, history: [], phase: 'collect', useAi: useAi(session),
@@ -672,12 +747,12 @@ async function startService(session, svc, user, wards, firstMessage) {
   // The opening message is the description itself; do not let it fill other long answers.
   const values = Object.fromEntries(Object.entries(read.values).filter(([k]) => {
     const f = session.service.fields.find((x) => x.key === k);
-    return f && (f.type !== 'longtext' || k === story?.key);
+    return f && (f.type !== 'longtext' || (k === story?.key && !session.needDetail));
   }));
   absorb(session, values);
   if (read.ward) session.ward = read.ward;
   if (read.place) session.place = read.place;
-  return nextStep(session, wards, 'Thanks for telling me, I can help you report this.');
+  return nextStep(session, wards, session.needDetail ? '' : 'Thanks for telling me, I am sorry you are dealing with this. I will help you report it.');
 }
 
 /**
@@ -861,7 +936,7 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
           session.choices = [offered[0].id];
           return {
             type: 'question',
-            text: `It sounds like you want to ${offered[0].label.charAt(0).toLowerCase()}${offered[0].label.slice(1)}. Is that right?`,
+            text: `${soundsLike(offered[0])} Is that right?`,
             options: [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }],
           };
         }
@@ -872,6 +947,8 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
         return { type: 'guidance', text: `${session.said.length > 1 ? 'I am not sure what you need yet. ' : ''}${OPENING} For example, I can help you ${listOf(examples)}.` };
       }
     }
+    // A "yes" or a number that only picked the service is not part of the story.
+    if (session.said.length > 1 && (understanding.ruleIntent(message) === 'confirm' || /^\d$/.test(message.trim()))) session.said.pop();
     const reply = await startService(session, pick, user, wards, session.said.join('. '));
     if (session.heldFile) {
       const param = matchFileToParameter(session.service.fileFields, session.heldFile);
@@ -895,6 +972,33 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   }
 
   // ── Answers to "where exactly?" and "any photo?" ──────────────────────────
+  // ── Answer to "what exactly is happening?" ────────────────────────────────
+  let detailGiven = false;
+  if (asked === '__detail') {
+    const story = session.service.fields.find((f) => f.type === 'longtext' && f.mandatory);
+    const n = understanding.normalize(message);
+    const opening = String(session.said[0] || '').trim();
+    const topicWord = understanding.tokens(ruleSubject(opening)).filter((w) => !VAGUE_WORDS.has(w))[0] || '';
+    let text = message.trim();
+    if (SKIP.test(n) || !understanding.tokens(text).length) text = opening; // they cannot say more: keep what we have
+    else if (topicWord && !understanding.tokens(text).includes(topicWord)) text = `${topicWord.charAt(0).toUpperCase()}${topicWord.slice(1)}: ${text}`;
+    const check = story ? validateValue(story, text) : { ok: true, value: text };
+    session.detailTries = (session.detailTries || 0) + 1;
+    if (!check.ok && session.detailTries < 2) {
+      return { type: 'question', text: 'A little more detail helps the team, for example what you see and since when.', invalid: '__detail' };
+    }
+    if (story) session.draft[story.key] = check.ok ? check.value : `${text} (${opening})`.slice(0, 2000);
+    session.needDetail = false;
+    detailGiven = true;
+  }
+
+  // ── Optional details the form asks for: each one can be skipped ──────────
+  const askedExtra = asked && !asked.startsWith('__') ? session.service.fields.find((f) => f.key === asked && !f.mandatory && f.chatAsk) : null;
+  if (askedExtra && SKIP.test(understanding.normalize(message))) {
+    session.skipped = [...(session.skipped || []), asked];
+    return nextStep(session, wards, 'No problem.');
+  }
+
   if (asked === '__place' || asked === '__photo') {
     const n = understanding.normalize(message);
     if (asked === '__place') {
@@ -973,6 +1077,9 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
 
   // ── Take in what this message said: answers, extra details, corrections ───
   const values = { ...read.values };
+  if (detailGiven) {
+    for (const f of session.service.fields) if (f.type === 'longtext') delete values[f.key];
+  }
   const askedField = asked && asked !== '__ward' ? session.service.fields.find((f) => f.key === asked) : null;
   // A free-text answer to the question just asked.
   if (askedField && values[asked] === undefined && !['choice'].includes(askedField.type) && read.intent !== 'correct') values[asked] = message;
@@ -986,6 +1093,22 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
 
   // The asked question got an answer that does not pass: say why, ask again.
   const failedAsked = refused.find((r) => r.field.key === asked);
+  // They answered a choice with a description ("no water since 2 days, the whole
+  // building…"): keep it as detail for the team, then ask the choice again.
+  const story = session.service.fields.find((f) => f.type === 'longtext' && f.mandatory);
+  if (failedAsked && failedAsked.field.type === 'choice' && story && understanding.tokens(message).length >= 5) {
+    const before = String(session.draft[story.key] || '').trim();
+    if (!before.toLowerCase().includes(message.toLowerCase())) {
+      const joined = before ? `${before}. ${message}` : message;
+      if (validateValue(story, joined).ok) session.draft[story.key] = validateValue(story, joined).value;
+    }
+    return {
+      type: 'question',
+      text: `Thanks, I have added that to the details. ${questionFor(failedAsked.field)}`,
+      invalid: asked,
+      options: quickReplies(failedAsked.field.options),
+    };
+  }
   if (failedAsked) {
     return {
       type: 'question',
@@ -995,19 +1118,34 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
     };
   }
   if (asked === '__ward' && !session.ward && !accepted.length) {
+    // A near miss ("kothrood"): ask about the closest names only.
+    const close = understanding.closeWards(message, wards);
+    if (close.length) {
+      return {
+        type: 'question',
+        text: `Did you mean ${listOf(close.map((w) => w.name))}?`,
+        invalid: '__ward',
+        options: [...close.map((w) => ({ label: w.name, value: w.name })), { label: 'Somewhere else', value: 'somewhere else' }],
+      };
+    }
     const names = wards.slice(0, 8).map((w) => w.name);
-    return { type: 'question', text: `I do not know that area yet. ${names.length ? `I can file it under ${listOf(names)}. Which is closest?` : 'Which ward is it in?'}`, invalid: '__ward', options: quickReplies(wards.map((w) => w.name)) };
+    const list = wards.length <= 8 ? ` The areas I can file under are ${listOf(names)}. Which is it in, or closest to?` : ' Could you give the name of the ward or a well-known area nearby?';
+    return { type: 'question', text: `I could not find "${message.slice(0, 40)}" among the areas we cover.${list}`, invalid: '__ward', options: quickReplies(wards.map((w) => w.name)) };
   }
 
   // Say what changed, when something already given was changed.
   const changed = accepted.filter((f) => before[f.key] !== undefined && before[f.key] !== session.draft[f.key]);
-  const changes = changed.map((f) => `${f.plain} is now ${session.draft[f.key]}`);
+  // A longer description is "added to the details", not read back word for word.
+  const addedDetails = changed.some((f) => f.type === 'longtext');
+  const changes = changed.filter((f) => f.type !== 'longtext').map((f) => `${f.plain} is now ${session.draft[f.key]}`);
   if (wardBefore && session.ward && wardBefore.id !== session.ward.id) changes.push(`the area is now ${session.ward.name}`);
   let lead = changes.length ? `Changed: ${changes.join('; ')}.` : (attachedNote || '');
+  if (addedDetails) lead = `${lead ? `${lead} ` : ''}Thanks, I have added that to the details.`;
 
   if (session.phase === 'confirming' && !changes.length && !accepted.length) {
     return { type: 'question', text: 'Say **yes** to send it, or tell me what to change, for example "the area is Aundh".' };
   }
+  if (!lead && detailGiven) lead = 'Thanks, that helps.';
   if (!lead && accepted.length) lead = 'Thanks.';
   return nextStep(session, wards, lead);
 }
@@ -1021,6 +1159,8 @@ module.exports = {
   _loadServiceCatalog: loadServiceCatalog,
   _validateValue: validateValue,
   _loadWards: loadWards,
+  _soundsLike: soundsLike,
+  _isThin: isThin,
   _ruleSubject: ruleSubject,
   _describeService: describeService,
 };

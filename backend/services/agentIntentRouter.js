@@ -201,7 +201,71 @@ function isJudgement(field) {
 function findWard(message, wards) {
   const n = ` ${normalize(message)} `;
   const sorted = [...wards].sort((a, b) => b.name.length - a.name.length);
-  return sorted.find((w) => n.includes(` ${normalize(w.name)} `)) || null;
+  const exact = sorted.find((w) => n.includes(` ${normalize(w.name)} `));
+  if (exact) return exact;
+  // The same name written with or without spaces: "shivaji nagar" = "Shivajinagar".
+  const words = normalize(message).split(' ').filter(Boolean);
+  for (let len = 3; len >= 1; len -= 1) {
+    for (let i = 0; i + len <= words.length; i += 1) {
+      const joined = words.slice(i, i + len).join('');
+      const hit = sorted.find((w) => compact(w.name).length >= 5 && compact(w.name) === joined);
+      if (hit) return hit;
+    }
+  }
+  // A small typo in a longer name: one letter off for 6-7 letters, two for 8+.
+  let best = null;
+  for (let len = 1; len <= 3; len += 1) {
+    for (let i = 0; i + len <= words.length; i += 1) {
+      const joined = words.slice(i, i + len).join('');
+      for (const w of sorted) {
+        const name = compact(w.name);
+        if (name.length < 6) continue;
+        const allowed = name.length >= 8 ? 2 : 1;
+        const d = editDistance(joined, name, allowed);
+        if (d <= allowed && (!best || d < best.d)) best = { w, d };
+      }
+    }
+  }
+  return best ? best.w : null;
+}
+
+/** Areas whose names look close to what was written, for "did you mean…?". */
+function closeWards(message, wards, max = 3) {
+  const words = normalize(message).split(' ').filter(Boolean);
+  const scored = [];
+  for (const w of wards) {
+    const name = compact(w.name);
+    if (name.length < 4) continue;
+    // Close means a few letters off, scaled to the name, never more than 3.
+    const allowed = Math.min(3, Math.max(1, Math.floor(name.length / 3)));
+    let d = Infinity;
+    for (let len = 1; len <= 3; len += 1) {
+      for (let i = 0; i + len <= words.length; i += 1) d = Math.min(d, editDistance(words.slice(i, i + len).join(''), name, allowed));
+    }
+    if (d <= allowed) scored.push({ w, d });
+  }
+  return scored.sort((a, b) => a.d - b.d).slice(0, max).map((x) => x.w);
+}
+
+function compact(text) {
+  return normalize(text).replace(/\s+/g, '');
+}
+
+/** Levenshtein distance, stopping early once it exceeds `limit`. */
+function editDistance(a, b, limit = Infinity) {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      rowMin = Math.min(rowMin, cur[j]);
+    }
+    if (rowMin > limit) return limit + 1;
+    prev = cur;
+  }
+  return prev[b.length];
 }
 
 /** Find which option of a choice field the message names. */
@@ -251,6 +315,9 @@ async function readDetails({ message, fields, wards, askedKey = null, history = 
     // A bare answer only counts for the field that was asked about.
     const picked = findOption(message, f.options);
     if (!picked) continue;
+    // An optional detail is taken from free text only when the whole option is
+    // named ("outside my building" is a place, not "My building or society").
+    if (!f.mandatory && f.key !== askedKey && !` ${normalize(message)} `.includes(` ${normalize(picked)} `)) continue;
     const bare = normalize(message) === normalize(picked) || /^\s*\d{1,2}\s*$/.test(message);
     if (f.key === askedKey || !bare) values[f.key] = picked;
   }
@@ -327,6 +394,7 @@ module.exports = {
   ruleIntent,
   scoreServices,
   findWard,
+  closeWards,
   findOption,
   findPlace,
   tokens,
