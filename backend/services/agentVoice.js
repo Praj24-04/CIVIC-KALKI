@@ -108,6 +108,8 @@ function withinBudget(promise, ms) {
 
 // ── Titles ───────────────────────────────────────────────────────────────────
 
+const TITLE_PROMISES = /\b(will be (fixed|resolved|repaired|sorted|cleaned|done|handled)|to be (fixed|resolved|repaired|done)|guarantee\w*|promise\w*|within|asap|immediately|right away|priority|urgent(ly)?)\b/i;
+
 /**
  * Is this AI title safe to use as the record's name? A short noun phrase about
  * the problem: no question, no markup, no system words, no promises, no claim
@@ -119,7 +121,8 @@ function acceptableTitle(text, { knownText = '', citizenSaid = '', personNames =
   if (t.length < 3 || t.length > 70) return false;
   if (t.split(/\s+/).length > 10) return false;
   if (/[?!*_#`<>[\]{}\n]/.test(t)) return false;
-  if (SYSTEM_WORDS.test(t) || PROMISES.test(t)) return false;
+  // A title may say "for 2 days" (a fact the resident gave); only outcome promises are refused.
+  if (SYSTEM_WORDS.test(t) || TITLE_PROMISES.test(t)) return false;
   // About the problem, not about the act of complaining.
   if (/^(i|i'm|im|my|we|please|complaint|request|report(ing)?|regarding|about)\b/i.test(t)) return false;
   const lower = t.toLowerCase();

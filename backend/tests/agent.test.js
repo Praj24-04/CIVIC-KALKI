@@ -501,6 +501,42 @@ describe('Civic assistant', () => {
         expect(e.name).toBe(`Pothole near the building gate in ${WARD}`);
       });
 
+      test('severity is the citizen\'s to say: an AI guess from the description is not used', async () => {
+        mockGenerate.mockImplementation(async (payload) => {
+          const p = Array.isArray(payload) ? payload[0] : String(payload);
+          if (p.includes('Decide what they want')) return reply({ intent: 'file', service_id: grievance.entity_type_id, candidate_ids: [] });
+          if (p.includes('extract facts')) {
+            expect(p).toContain(`TODAY IS: ${new Date().toISOString().slice(0, 10)}`);
+            return reply({ intent: 'answer', values: { category: 'Infrastructure', severity: 'Critical' }, area: WARD, place: null });
+          }
+          return reply({ text: 'x' });
+        });
+        const id = sid();
+        const r = await say(id, 'big pothole on the main road');
+        expect(_sessions.get(id).draft.category).toBe('Infrastructure');
+        expect(_sessions.get(id).draft.severity).toBeUndefined();
+        expect(_sessions.get(id).asked).toBe('severity');
+        expect(r.text).toMatch(/severity/i);
+      });
+
+      test('an answer in own words to a choice is read by the AI even during the pause after an AI failure', async () => {
+        const id = sid();
+        let r = await say(id, 'I want to lodge a complaint regarding the pothole outside my building gate');
+        r = await say(id, 'Infrastructure');
+        expect(_sessions.get(id).asked).toBe('severity');
+        _sessions.get(id).lastAiFailure = Date.now(); // the AI just failed: rules for a minute
+        mockGenerate.mockImplementation(async (payload) => {
+          const p = Array.isArray(payload) ? payload[0] : String(payload);
+          kinds.push(p.includes('extract facts') ? 'read' : 'other');
+          if (p.includes('extract facts')) return reply({ intent: 'answer', values: { severity: 'Severe' }, area: null, place: null });
+          return reply({ text: 'x' });
+        });
+        kinds.length = 0;
+        r = await say(id, 'pretty bad, two bikes fell yesterday');
+        expect(kinds).toContain('read');
+        expect(_sessions.get(id).draft.severity).toBe('Severe');
+      });
+
       test('an AI title that talks about complaining, names a person or makes a claim is thrown away', async () => {
         title = 'Complaint regarding pothole';
         const id = sid();
@@ -539,6 +575,8 @@ describe('Civic assistant', () => {
     });
 
     // One message that names the service, category, severity and area, but no spot.
+    // The resident states the severity themselves ("a moderate problem"): an AI
+    // guess of how serious it is would not be used.
     const streetlight = () => mockGenerate
       .mockResolvedValueOnce(reply({ intent: 'file', service_id: grievance.entity_type_id, candidate_ids: [] }))
       .mockResolvedValueOnce(reply({ intent: 'answer', values: { category: 'Safety', severity: 'Moderate' }, area: WARD, place: null }));
@@ -546,7 +584,7 @@ describe('Civic assistant', () => {
     test('asks where exactly, then for a photo: once each, and both can be skipped or answered', async () => {
       const id = sid();
       streetlight();
-      let r = await say(id, 'The streetlight is broken and the lane is dark at night');
+      let r = await say(id, 'The streetlight is broken and the lane is dark at night, a moderate problem');
       expect(r.type).toBe('question');
       expect(r.text).toMatch(/where exactly/i);
       expect(r.options.map((o) => o.value)).toEqual(['__share_location', 'skip']);
@@ -566,14 +604,14 @@ describe('Civic assistant', () => {
     test('"use where I am" keeps the shared map pin; "skip" leaves the spot out', async () => {
       const id = sid();
       streetlight();
-      await say(id, 'The streetlight is broken and the lane is dark at night');
+      await say(id, 'The streetlight is broken and the lane is dark at night, a moderate problem');
       let r = await say(id, "[User location: Pune (18.5204°N, 73.8567°E)] It's right where I am");
       expect(r.text).toMatch(/photo/i);
       expect(_sessions.get(id).coords).toEqual({ latitude: 18.5204, longitude: 73.8567 });
 
       const other = sid();
       streetlight();
-      await say(other, 'The streetlight is broken and the lane is dark at night');
+      await say(other, 'The streetlight is broken and the lane is dark at night, a moderate problem');
       r = await say(other, 'skip');
       expect(r.text).toMatch(/photo/i);
       expect(_sessions.get(other).place).toBeNull();
@@ -584,7 +622,7 @@ describe('Civic assistant', () => {
       streetlight();
       const worded = 'Sorry to hear the streetlight is out. Where exactly is it, is there a landmark or street name nearby?';
       mockGenerate.mockResolvedValueOnce(reply({ text: worded }));
-      const r = await say(id, 'The streetlight is broken and the lane is dark at night');
+      const r = await say(id, 'The streetlight is broken and the lane is dark at night, a moderate problem');
       expect(r.voice).toBe('ai');
       expect(r.text).toBe(worded);
       expect(_sessions.get(id).asked).toBe('__place');
@@ -600,7 +638,7 @@ describe('Civic assistant', () => {
       const id = sid();
       streetlight();
       mockGenerate.mockResolvedValueOnce(reply({ text: bad }));
-      const r = await say(id, 'The streetlight is broken and the lane is dark at night');
+      const r = await say(id, 'The streetlight is broken and the lane is dark at night, a moderate problem');
       expect(r.voice).toBe('rules');
       expect(r.text).toMatch(/Where exactly is it in/);
     });

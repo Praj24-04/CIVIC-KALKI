@@ -28,6 +28,18 @@ class AiUnavailableError extends Error {
   }
 }
 
+/** Optional second model, used once when the first answers 503 or 429 (env GEMINI_FALLBACK_MODEL). */
+function getFallbackModelName() {
+  return (process.env.GEMINI_FALLBACK_MODEL || '').trim() || null;
+}
+
+/** The provider said "overloaded" (503) or "too many requests" (429). */
+function isBusy(err) {
+  const status = err && (err.status || err.statusCode);
+  if (status === 503 || status === 429) return true;
+  return /\[(503|429)\b/.test(String((err && err.message) || ''));
+}
+
 function getModelName() {
   const fromEnv = (process.env.GEMINI_MODEL || '').trim();
   return fromEnv || DEFAULT_MODEL;
@@ -58,18 +70,21 @@ function isAiUnavailable(err) {
  * @returns {{ modelName: string, generateContent: (payload: any) => Promise<any> }}
  * @throws {AiUnavailableError} when no API key is configured.
  */
-function getModel(params = {}) {
+function getModel(params = {}, { timeoutMs: timeoutOverride } = {}) {
   const apiKey = getApiKey();
   if (!apiKey) {
     throw new AiUnavailableError('GEMINI_API_KEY is not configured.');
   }
 
   const modelName = getModelName();
-  const timeoutMs = getTimeoutMs();
-  const model = new GoogleGenerativeAI(apiKey).getGenerativeModel(
-    { ...params, model: modelName },
-    { timeout: timeoutMs }
-  );
+  // A caller may ask for a shorter wait than the default (the chat does).
+  const timeoutMs = Number.isFinite(timeoutOverride) && timeoutOverride > 0 ? Math.min(timeoutOverride, getTimeoutMs()) : getTimeoutMs();
+  const client = new GoogleGenerativeAI(apiKey);
+  const model = client.getGenerativeModel({ ...params, model: modelName }, { timeout: timeoutMs });
+  const fallbackName = getFallbackModelName();
+  const fallback = fallbackName && fallbackName !== modelName
+    ? client.getGenerativeModel({ ...params, model: fallbackName }, { timeout: timeoutMs })
+    : null;
 
   let unavailable = null;
 
@@ -85,7 +100,15 @@ function getModel(params = {}) {
     });
 
     try {
-      return await Promise.race([model.generateContent(payload), timeout]);
+      try {
+        return await Promise.race([model.generateContent(payload), timeout]);
+      } catch (first) {
+        // Overloaded or rate-limited: answered quickly, so one try on the fallback
+        // model fits in the same time window. Anything else is not retried.
+        if (!fallback || isAiUnavailable(first) || !isBusy(first)) throw first;
+        console.warn(`[AI CLIENT] ${modelName} is busy; trying ${fallbackName} once.`);
+        return await Promise.race([fallback.generateContent(payload), timeout]);
+      }
     } catch (err) {
       unavailable = isAiUnavailable(err)
         ? err

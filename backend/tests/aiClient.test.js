@@ -88,6 +88,46 @@ describe('A1 — AI client', () => {
       expect(mockGenerate).toHaveBeenCalledTimes(1);
     });
 
+    test('busy (503) with GEMINI_FALLBACK_MODEL set: one try on the fallback model', async () => {
+      process.env.GEMINI_FALLBACK_MODEL = 'backup-model';
+      try {
+        mockGenerate
+          .mockRejectedValueOnce(Object.assign(new Error('[503 Service Unavailable] overloaded'), { status: 503 }))
+          .mockResolvedValueOnce(reply('{"ok":true}'));
+        const model = aiClient.getModel();
+        const r = await model.generateContent('x');
+        expect(r.response.text()).toBe('{"ok":true}');
+        expect(mockGenerate).toHaveBeenCalledTimes(2);
+        expect(mockGetGenerativeModel.mock.calls.at(-1)[0].model).toBe('backup-model');
+      } finally {
+        delete process.env.GEMINI_FALLBACK_MODEL;
+      }
+    });
+
+    test('busy without a fallback model, or any other error: no second call', async () => {
+      mockGenerate.mockRejectedValue(Object.assign(new Error('[503 Service Unavailable] overloaded'), { status: 503 }));
+      await expect(aiClient.getModel().generateContent('x')).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' });
+      expect(mockGenerate).toHaveBeenCalledTimes(1);
+      process.env.GEMINI_FALLBACK_MODEL = 'backup-model';
+      try {
+        mockGenerate.mockReset().mockRejectedValue(new Error('[400 Bad Request] bad'));
+        await expect(aiClient.getModel().generateContent('x')).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' });
+        expect(mockGenerate).toHaveBeenCalledTimes(1);
+      } finally {
+        delete process.env.GEMINI_FALLBACK_MODEL;
+      }
+    });
+
+    test('a caller may ask for a shorter wait, never a longer one', async () => {
+      mockGenerate.mockImplementation(never);
+      const started = Date.now();
+      await expect(aiClient.getModel({}, { timeoutMs: 50 }).generateContent('x')).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' });
+      expect(Date.now() - started).toBeLessThan(TIMEOUT_MS);
+      expect(mockGetGenerativeModel.mock.calls.at(-1)[1]).toEqual({ timeout: 50 });
+      aiClient.getModel({}, { timeoutMs: 999999 });
+      expect(mockGetGenerativeModel.mock.calls.at(-1)[1]).toEqual({ timeout: TIMEOUT_MS });
+    });
+
     test('a provider or network error is not retried either', async () => {
       mockGenerate.mockRejectedValue(new Error('fetch failed'));
       const model = aiClient.getModel();

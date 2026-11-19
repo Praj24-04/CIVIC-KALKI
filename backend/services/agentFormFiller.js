@@ -394,6 +394,9 @@ function ruleSubject(source) {
     if (t === before) break;
   }
   if (t !== original) t = t.replace(LEADING_ARTICLE, '').trim();
+  // A long first sentence: its first clause is usually the problem itself.
+  const clause = t.split(/[,;]| - /)[0].trim();
+  if (clause !== t && clause.split(/\s+/).length >= 3) t = clause;
   return t;
 }
 
@@ -911,6 +914,11 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
     // Anything else is read as an ordinary message below.
   }
 
+  // An answer in the resident's own words to a choice question ("pretty bad" for
+  // severity) cannot be matched by rules. Ask the AI for it even during the
+  // pause after an AI failure, or the resident would be stuck repeating it.
+  const askedChoice = asked ? session.service.fields.find((f) => f.key === asked && f.type === 'choice') : null;
+  const ownWords = Boolean(askedChoice) && !understanding.findOption(message, askedChoice.options);
   const read = await understanding.readDetails({
     message,
     fields: session.service.fields,
@@ -918,7 +926,7 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
     askedKey: asked,
     history: session.said.slice(0, -1),
     phase: session.phase === 'confirming' ? 'confirm' : 'collect',
-    useAi: useAi(session),
+    useAi: useAi(session) || (ownWords && aiClient.isConfigured()),
   });
   noteAi(session, read);
 

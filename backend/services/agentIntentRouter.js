@@ -57,11 +57,20 @@ function cleanJson(text) {
  * @returns {Promise<{ data: object|null, aiUnavailable: boolean }>}
  *   aiUnavailable = no usable AI (no key, timeout, network, provider error).
  */
+/** How long one chat AI call may take before the rules answer instead (env AGENT_AI_TIMEOUT_MS, default 8 s). */
+function chatTimeoutMs() {
+  const n = Number(process.env.AGENT_AI_TIMEOUT_MS);
+  return Number.isFinite(n) && n > 0 ? n : 8000;
+}
+
 async function askJson(prompt, isValid) {
   if (!aiClient.isConfigured()) return { data: null, aiUnavailable: true };
   let model;
   try {
-    model = aiClient.getModel({ generationConfig: { temperature: 0.1, responseMimeType: 'application/json' } });
+    model = aiClient.getModel(
+      { generationConfig: { temperature: 0.1, responseMimeType: 'application/json' } },
+      { timeoutMs: chatTimeoutMs() }
+    );
   } catch (err) {
     return { data: null, aiUnavailable: true };
   }
@@ -75,7 +84,10 @@ async function askJson(prompt, isValid) {
       if (data && typeof data === 'object' && isValid(data)) return { data, aiUnavailable: false };
     } catch (err) {
       // The call itself failed: do not try again, the handle is marked unavailable.
-      if (aiClient.isAiUnavailable(err)) return { data: null, aiUnavailable: true };
+      if (aiClient.isAiUnavailable(err)) {
+        console.warn('[CIVIC ASSISTANT] AI unavailable, using rules for a minute:', String(err.message || err).slice(0, 200));
+        return { data: null, aiUnavailable: true };
+      }
       // Otherwise it was an unusable answer: one more attempt.
     }
   }
@@ -177,6 +189,12 @@ Never invent an id. If unsure between services, use null and list the candidates
   };
 }
 
+/** A detail that is a judgement only the citizen may make (severity, urgency, priority). */
+const JUDGEMENT = /sever|urgen|priorit|serious|criticality|impact/i;
+function isJudgement(field) {
+  return JUDGEMENT.test(`${field.key || ''} ${field.label || ''}`);
+}
+
 // ── Reading details out of a message ─────────────────────────────────────────
 
 /** Find a ward the message names. Longest name first, whole words only. */
@@ -267,8 +285,12 @@ Return JSON only:
  "values": {<key>: <value>, ...},
  "area": <an area name from the list, or null>,
  "place": <a short landmark or address they mentioned, or null>}
+TODAY IS: ${new Date().toISOString().slice(0, 10)}
+
 Rules:
 - Put in "values" only what the citizen actually said or what plainly follows from it. Never guess personal details.
+- A date only if the citizen gave one; turn "yesterday" or "since 3 days" into YYYY-MM-DD counting back from today. Never make one up.
+- How serious, urgent or important it is, is for the citizen to say: leave such details out unless they said it.
 - For a choice, the value must be one of the listed options, chosen only if it clearly fits; otherwise leave the key out.
 - "correct" = they are changing something said before. Include only the changed keys.
 - "confirm"/"deny" = a plain yes/no to sending. "cancel" = they want to stop.`;
@@ -279,7 +301,12 @@ Rules:
 
   const aiValues = {};
   for (const [k, v] of Object.entries(data.values || {})) {
-    if (keys.has(k) && v !== null && v !== undefined && String(v).trim() !== '') aiValues[k] = v;
+    if (!keys.has(k) || v === null || v === undefined || String(v).trim() === '') continue;
+    // How serious it is is the citizen's call: an AI reading counts only as their
+    // answer to that very question, never as an inference from the description.
+    const field = fields.find((f) => f.key === k);
+    if (field && isJudgement(field) && k !== askedKey) continue;
+    aiValues[k] = v;
   }
   const aiWard = data.area ? wards.find((w) => normalize(w.name) === normalize(data.area)) || null : null;
   const aiIntent = ['answer', 'correct', 'confirm', 'deny', 'cancel', 'status', 'other'].includes(data.intent) ? data.intent : 'answer';
