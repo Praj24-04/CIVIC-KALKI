@@ -72,6 +72,78 @@ describe('Civic assistant settings', () => {
     await prisma.$disconnect();
   });
 
+  describe('editing an existing module (A1c)', () => {
+    let typeId;
+    let params;
+    beforeAll(async () => {
+      const res = await deploy(modulePayload(`Stray Dog Edit ${Date.now()}`));
+      typeId = res.body.data.entityType.entity_type_id;
+      deployed.push(typeId);
+    });
+    const get = (headers = admin.headers) => request(app).get(`/forms/assistant/${typeId}`).set(headers);
+    const put = (body, headers = admin.headers) => request(app).put(`/forms/assistant/${typeId}`).set(headers).send(body);
+
+    test('shows each field\'s chat settings and the module switches', async () => {
+      const res = await get();
+      expect(res.status).toBe(200);
+      params = res.body.data.fields;
+      expect(res.body.data.asks).toEqual({ ask_area: false, ask_spot: true, ask_photo: false });
+      expect(params.find((f) => f.label === 'Behaviour').chat).toEqual({ role: 'severity', question: 'How is the dog behaving: Calm, Scared or Aggressive?' });
+    });
+
+    test('a changed question is used by the assistant on the next conversation', async () => {
+      const behaviour = params.find((f) => f.label === 'Behaviour');
+      const res = await put({ fields: [{ parameter_id: behaviour.parameter_id, chat: { role: 'severity', question: 'Is the dog Calm, Scared or Aggressive right now?' } }] });
+      expect(res.status).toBe(200);
+      // The choices on the field are untouched.
+      const stored = await prisma.parameterMaster.findUnique({ where: { parameter_id: behaviour.parameter_id } });
+      expect(stored.options.choices).toEqual(['Calm', 'Scared', 'Aggressive']);
+
+      const id = sid();
+      await continueFormFilling(id, 'hello', citizenUser);
+      const s = _sessions.get(id);
+      s.phase = 'choosing'; s.choices = [typeId]; s.said = ['A dog is barking at children and chasing bikes on our street'];
+      const r = await continueFormFilling(id, 'yes', citizenUser);
+      expect(r.text).toMatch(/Is the dog Calm, Scared or Aggressive right now\?/);
+    });
+
+    test('module switches can be changed: turning the area on makes the assistant ask it', async () => {
+      const res = await put({ asks: { ask_area: true, ask_spot: false, ask_photo: false } });
+      expect(res.status).toBe(200);
+      expect(res.body.data.asks).toEqual({ ask_area: true, ask_spot: false, ask_photo: false });
+      const id = sid();
+      await continueFormFilling(id, 'hello', citizenUser);
+      const s = _sessions.get(id);
+      s.phase = 'choosing'; s.choices = [typeId]; s.said = ['A dog is barking at children and chasing bikes on our street'];
+      let r = await continueFormFilling(id, 'yes', citizenUser);
+      r = await continueFormFilling(id, 'Aggressive', citizenUser);
+      expect(_sessions.get(id).asked).toBe('__ward');
+    });
+
+    test('a bad change is refused and nothing is saved', async () => {
+      const count = params.find((f) => f.label === 'Dog Count');
+      const desc = params.find((f) => f.label === 'What Happened');
+      const before = await prisma.parameterMaster.findUnique({ where: { parameter_id: count.parameter_id } });
+      const res = await put({ fields: [
+        { parameter_id: count.parameter_id, chat: { ask: true, question: 'Changed?' } },
+        { parameter_id: count.parameter_id + 999999, chat: { ask: true } },
+      ] });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not part of this module/);
+      const dup = await put({ fields: [{ parameter_id: count.parameter_id, chat: { role: 'description' } }] });
+      expect(dup.status).toBe(400); // a number field cannot be the description, and there is one already
+      const after = await prisma.parameterMaster.findUnique({ where: { parameter_id: count.parameter_id } });
+      expect(after.options).toEqual(before.options);
+      expect((await prisma.parameterMaster.findUnique({ where: { parameter_id: desc.parameter_id } })).options).toEqual({ chat: { role: 'description' } });
+    });
+
+    test('only an admin or director can read or change the settings', async () => {
+      expect((await get(citizen.headers)).status).toBe(403);
+      expect((await put({ asks: { ask_area: false } }, citizen.headers)).status).toBe(403);
+      expect((await request(app).get(`/forms/assistant/${typeId}`).set('X-Requested-With', 'ck-web')).status).toBe(401);
+    });
+  });
+
   describe('No-Code Builder (A1b)', () => {
     let typeId;
 

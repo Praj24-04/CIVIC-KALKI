@@ -15,6 +15,7 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../db');
 const { verifyToken, checkRole } = require('../middleware/auth');
+const assistantSettings = require('../services/assistantSettings');
 
 // ── Helper: create an HTTP-aware error ────────────────────────────────────────
 function createError(message, statusCode) {
@@ -416,6 +417,93 @@ router.get('/forms/:formId/schema', async (req, res, next) => {
     };
 
     return res.status(200).json({ success: true, data: schema });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Civic assistant settings of an existing module (admin, director)
+//   GET /forms/assistant/:entityTypeId  → { asks, fields: [{ parameter_id, label, field_type, mandatory, chat }] }
+//   PUT /forms/assistant/:entityTypeId  ← { asks?: { ask_area, ask_spot, ask_photo },
+//                                           fields?: [{ parameter_id, chat }] }
+// Same rules as the No-Code Builder (services/assistantSettings.js). The
+// assistant reads them on its next turn; no restart.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function moduleParams(entityTypeId) {
+  return prisma.parameterMaster.findMany({
+    where: { subsectionMaster: { sectionMaster: { formMaster: { entity_type_id: entityTypeId } } } },
+    orderBy: [{ subsection_id: 'asc' }, { display_order: 'asc' }, { parameter_id: 'asc' }],
+    select: { parameter_id: true, label: true, field_key: true, field_type: true, mandatory: true, options: true },
+  });
+}
+
+function chatOf(options) {
+  return options && typeof options === 'object' && !Array.isArray(options) && options.chat ? options.chat : null;
+}
+
+router.get('/forms/assistant/:entityTypeId', verifyToken, checkRole(['admin', 'director']), async (req, res, next) => {
+  try {
+    const entityTypeId = parsePositiveInt(req.params.entityTypeId, 'entityTypeId');
+    const type = await prisma.entityType.findUnique({ where: { entity_type_id: entityTypeId } });
+    if (!type) return next(createError(`Module ${entityTypeId} was not found.`, 404));
+    const params = await moduleParams(entityTypeId);
+    return res.json({
+      success: true,
+      data: {
+        entity_type_id: entityTypeId,
+        name: type.name,
+        asks: await assistantSettings.readAsks(prisma, entityTypeId),
+        roles: assistantSettings.ROLES,
+        role_types: assistantSettings.ROLE_TYPES,
+        fields: params.map((p) => ({
+          parameter_id: p.parameter_id, label: p.label, field_key: p.field_key,
+          field_type: p.field_type, mandatory: p.mandatory, chat: chatOf(p.options),
+        })),
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put('/forms/assistant/:entityTypeId', verifyToken, checkRole(['admin', 'director']), async (req, res, next) => {
+  try {
+    const entityTypeId = parsePositiveInt(req.params.entityTypeId, 'entityTypeId');
+    const type = await prisma.entityType.findUnique({ where: { entity_type_id: entityTypeId } });
+    if (!type) return next(createError(`Module ${entityTypeId} was not found.`, 404));
+    const params = await moduleParams(entityTypeId);
+    const byId = new Map(params.map((p) => [p.parameter_id, p]));
+
+    const updates = Array.isArray(req.body.fields) ? req.body.fields : [];
+    const errors = [];
+    const nextChat = new Map(params.map((p) => [p.parameter_id, chatOf(p.options)]));
+    for (const u of updates) {
+      const p = byId.get(Number(u && u.parameter_id));
+      if (!p) { errors.push(`Field ${u && u.parameter_id} is not part of this module.`); continue; }
+      const { chat, errors: e } = assistantSettings.sanitizeChat(u.chat, p.field_type, p.label);
+      errors.push(...e);
+      nextChat.set(p.parameter_id, chat);
+    }
+    errors.push(...assistantSettings.roleErrors(params.map((p) => ({ label: p.label, chat: nextChat.get(p.parameter_id) }))));
+    if (errors.length) return next(createError(errors.join(' '), 400));
+
+    const asks = await prisma.$transaction(async (tx) => {
+      for (const u of updates) {
+        const p = byId.get(Number(u.parameter_id));
+        await tx.parameterMaster.update({
+          where: { parameter_id: p.parameter_id },
+          data: { options: assistantSettings.withChat(p.options, nextChat.get(p.parameter_id)) },
+        });
+      }
+      return req.body.asks !== undefined
+        ? assistantSettings.writeAsks(tx, entityTypeId, req.body.asks)
+        : assistantSettings.readAsks(tx, entityTypeId);
+    });
+
+    console.log(`[ASSISTANT SETTINGS] user ${req.user.user_id} updated module ${entityTypeId} (${updates.length} field(s)${req.body.asks !== undefined ? ', module switches' : ''}).`);
+    return res.json({ success: true, data: { entity_type_id: entityTypeId, asks, updated_fields: updates.length } });
   } catch (err) {
     return next(err);
   }

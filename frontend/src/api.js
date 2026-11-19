@@ -102,6 +102,9 @@ export const forms = {
   addSection:       (formId, body)         => request('POST', `/forms/${formId}/sections`, body),
   addSubsection:    (sectionId, body)      => request('POST', `/sections/${sectionId}/subsections`, body),
   addParameter:     (subsectionId, body)   => request('POST', `/subsections/${subsectionId}/parameters`, body),
+  // Civic assistant settings of an existing module (admin, director)
+  getAssistant:     (entityTypeId)         => request('GET',  `/forms/assistant/${entityTypeId}`),
+  saveAssistant:    (entityTypeId, body)   => request('PUT',  `/forms/assistant/${entityTypeId}`, body),
 };
 
 // ── Reports ───────────────────────────────────────────────────────────────

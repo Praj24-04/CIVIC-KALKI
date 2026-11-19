@@ -1,8 +1,8 @@
-import { requireAuth } from '../auth.js';
+import { requireAuth, getUser } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { entities as apiEntities, forms as apiForms } from '../api.js';
 import { renderRuleGraph } from '../components/ruleGraph.js';
-import { toastError } from '../components/toast.js';
+import { toastError, toastSuccess } from '../components/toast.js';
 import { navigate } from '../router.js';
 import { getCapabilityPresentation, capabilityIcon } from '../utils/terminology.js';
 
@@ -44,6 +44,7 @@ export async function renderModules() {
       </div>
 
       <div id="modules-container"></div>
+      <div id="assistant-settings-panel"></div>
       <div id="rule-graph-container"></div>
     `, 'Modules', entityTypes);
     attachLayoutEvents();
@@ -117,6 +118,10 @@ function renderCapabilityDirectory(container, entityTypes) {
             ${escapeHtml(pres.actionLabel)} →
           </a>
         </div>
+        ${canEditAssistant() ? `
+        <button type="button" class="btn btn-ghost btn-sm" data-assistant-settings="${t.entity_type_id}" style="margin-top:10px; align-self:flex-start; font-size:0.8rem;">
+          Assistant settings
+        </button>` : ''}
       </div>
     `;
   }).join('');
@@ -126,4 +131,107 @@ function renderCapabilityDirectory(container, entityTypes) {
       ${cardsHTML}
     </div>
   `;
+  container.querySelectorAll('[data-assistant-settings]').forEach((btn) => {
+    btn.addEventListener('click', () => openAssistantSettings(Number(btn.getAttribute('data-assistant-settings'))));
+  });
+}
+
+// ── Civic assistant settings (admin, director) ───────────────────────────────
+
+const ROLE_LABELS = {
+  '': 'None',
+  description: 'The problem in their words',
+  severity: 'How serious (the resident decides)',
+  person_name: "The resident's name",
+  contact_phone: 'Call-back number',
+  photo: 'Photo of the problem',
+};
+
+function canEditAssistant() {
+  const role = (getUser() || {}).role;
+  return role === 'admin' || role === 'director';
+}
+
+async function openAssistantSettings(entityTypeId) {
+  const panel = document.getElementById('assistant-settings-panel');
+  if (!panel) return;
+  panel.innerHTML = '<div class="card" style="margin-top:24px; padding:24px;"><div class="spinner"></div></div>';
+  let data;
+  try {
+    data = (await apiForms.getAssistant(entityTypeId)).data;
+  } catch (err) {
+    panel.innerHTML = '';
+    toastError('Could not load the assistant settings for this module.');
+    return;
+  }
+  const typeFits = (role, fieldType) => !role || (data.role_types[role] || []).includes(String(fieldType || 'text').toLowerCase());
+  const rows = data.fields.map((f) => {
+    const chat = f.chat || {};
+    const roleOptions = ['', ...data.roles].filter((r) => typeFits(r, f.field_type))
+      .map((r) => `<option value="${r}" ${String(chat.role || '') === r ? 'selected' : ''}>${escapeHtml(ROLE_LABELS[r] || r)}</option>`).join('');
+    const isFile = ['file', 'upload', 'image', 'attachment'].includes(String(f.field_type).toLowerCase());
+    return `
+      <tr data-param="${f.parameter_id}">
+        <td style="padding:8px; vertical-align:top;"><strong>${escapeHtml(f.label)}</strong><div style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(f.field_type || 'text')}${f.mandatory ? ' · required' : ''}</div></td>
+        <td style="padding:8px; vertical-align:top;"><select class="form-control" data-k="role">${roleOptions}</select></td>
+        <td style="padding:8px; vertical-align:top; text-align:center;">${f.mandatory || isFile ? '<span style="font-size:0.75rem; color:var(--text-muted);">' + (f.mandatory ? 'always' : '—') + '</span>' : `<input type="checkbox" data-k="ask" ${chat.ask ? 'checked' : ''} aria-label="Ask ${escapeHtml(f.label)} in chat">`}</td>
+        <td style="padding:8px; vertical-align:top;">${isFile ? '' : `<input type="text" class="form-control" data-k="question" maxlength="300" value="${escapeHtml(chat.question || '')}" placeholder="Default wording">`}</td>
+        <td style="padding:8px; vertical-align:top; width:80px;">${f.mandatory || isFile ? '' : `<input type="number" class="form-control" data-k="order" min="0" max="999" value="${chat.order ?? ''}" aria-label="Order">`}</td>
+      </tr>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <div class="card" style="margin-top:24px;">
+      <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div class="card-title">Assistant settings: ${escapeHtml(data.name)}</div>
+          <div class="card-subtitle">What the civic assistant asks for this module. Changes apply to new conversations at once.</div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="assistant-close">Close</button>
+      </div>
+      <div class="card-body">
+        <div style="display:flex; gap:18px; flex-wrap:wrap; margin-bottom:16px; font-size:0.9rem;">
+          <span style="font-weight:600;">Also ask for:</span>
+          <label style="display:flex; gap:6px; align-items:center;"><input type="checkbox" id="ask-area" ${data.asks.ask_area ? 'checked' : ''}> The area (ward)</label>
+          <label style="display:flex; gap:6px; align-items:center;"><input type="checkbox" id="ask-spot" ${data.asks.ask_spot ? 'checked' : ''}> The exact spot</label>
+          <label style="display:flex; gap:6px; align-items:center;"><input type="checkbox" id="ask-photo" ${data.asks.ask_photo ? 'checked' : ''}> A photo</label>
+        </div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+            <thead><tr style="text-align:left; border-bottom:1px solid var(--border);">
+              <th style="padding:8px;">Field</th><th style="padding:8px;">This field is</th><th style="padding:8px;">Ask in chat</th><th style="padding:8px;">How the assistant asks it</th><th style="padding:8px;">Order</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:16px;">
+          <button type="button" class="btn btn-primary" id="assistant-save">Save settings</button>
+        </div>
+      </div>
+    </div>`;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  document.getElementById('assistant-close').addEventListener('click', () => { panel.innerHTML = ''; });
+  document.getElementById('assistant-save').addEventListener('click', async () => {
+    const fields = [...panel.querySelectorAll('tr[data-param]')].map((tr) => {
+      const get = (k) => tr.querySelector(`[data-k="${k}"]`);
+      const chat = {};
+      if (get('role') && get('role').value) chat.role = get('role').value;
+      if (get('ask') && get('ask').checked) chat.ask = true;
+      if (get('question') && get('question').value.trim()) chat.question = get('question').value.trim();
+      if (get('order') && get('order').value !== '') chat.order = Number(get('order').value);
+      return { parameter_id: Number(tr.getAttribute('data-param')), chat: Object.keys(chat).length ? chat : null };
+    });
+    const asks = {
+      ask_area: document.getElementById('ask-area').checked,
+      ask_spot: document.getElementById('ask-spot').checked,
+      ask_photo: document.getElementById('ask-photo').checked,
+    };
+    try {
+      await apiForms.saveAssistant(entityTypeId, { fields, asks });
+      toastSuccess('Assistant settings saved.');
+    } catch (err) {
+      toastError(err.message || 'Could not save the assistant settings.');
+    }
+  });
 }
