@@ -192,6 +192,8 @@ Never invent an id. If unsure between services, use null and list the candidates
 /** A detail that is a judgement only the citizen may make (severity, urgency, priority). */
 const JUDGEMENT = /sever|urgen|priorit|serious|criticality|impact/i;
 function isJudgement(field) {
+  // Declared by the form (role "severity"); older forms are recognised by name.
+  if (typeof field.judgement === 'boolean') return field.judgement;
   return JUDGEMENT.test(`${field.key || ''} ${field.label || ''}`);
 }
 

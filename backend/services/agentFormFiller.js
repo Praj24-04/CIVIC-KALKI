@@ -132,6 +132,7 @@ async function loadServiceCatalog(role) {
         take: 1,
         include: { sections: { include: { subsections: { include: { parameters: true } } } } },
       },
+      dashboardMasters: { where: { widget_name: ASSISTANT_CONFIG_WIDGET }, orderBy: { dashboard_id: 'desc' }, take: 1 },
     },
     orderBy: { entity_type_id: 'asc' },
   });
@@ -155,6 +156,7 @@ async function loadServiceCatalog(role) {
         description: t.description || '',
         keywords: { strong, weak },
         params,
+        asks: parseAsks(t.dashboardMasters),
       };
     });
 }
@@ -209,11 +211,55 @@ function describeService(svc) {
       chatAsk: Boolean(p.options && p.options.chat && p.options.chat.ask),
       chatQuestion: p.options && p.options.chat && typeof p.options.chat.question === 'string' ? p.options.chat.question : null,
       chatOrder: p.options && p.options.chat && Number.isFinite(Number(p.options.chat.order)) ? Number(p.options.chat.order) : 999,
+      // What the field is for, declared in metadata (options.chat.role).
+      role: p.options && p.options.chat && FIELD_ROLES.has(p.options.chat.role) ? p.options.chat.role : null,
     };
     if (type === 'file') fileFields.push(base);
     else if (type !== 'location' && !TITLE_KEY.test(base.key)) fields.push(base);
   }
-  return { id: svc.id, name: svc.name, label: svc.label, fields, fileFields };
+
+  // A form that declares roles is read by its roles only. An older form without
+  // any role falls back to recognising fields by their names.
+  const usesRoles = [...fields, ...fileFields].some((f) => f.role);
+  const byRole = (list, role) => list.find((f) => f.role === role) || null;
+  const roles = usesRoles
+    ? {
+      description: byRole(fields, 'description'),
+      photo: byRole(fileFields, 'photo'),
+      personName: byRole(fields, 'person_name'),
+      contactPhone: byRole(fields, 'contact_phone'),
+    }
+    : {
+      description: fields.find((f) => f.type === 'longtext' && f.mandatory) || null,
+      photo: fileFields.find((f) => PHOTO_FIELD.test(f.key) || PHOTO_FIELD.test(f.label)) || null,
+      personName: fields.find((f) => PERSON_NAME.test(f.key) || PERSON_NAME.test(f.label)) || null,
+      contactPhone: null,
+    };
+  // How serious it is: only the citizen says (see agentIntentRouter.isJudgement).
+  for (const f of fields) f.judgement = usesRoles ? f.role === 'severity' : JUDGEMENT_NAME.test(`${f.key} ${f.label}`);
+
+  return { id: svc.id, name: svc.name, label: svc.label, fields, fileFields, roles, asks: svc.asks || { ...DEFAULT_ASKS } };
+}
+
+const FIELD_ROLES = new Set(['description', 'photo', 'severity', 'person_name', 'contact_phone']);
+const JUDGEMENT_NAME = /sever|urgen|priorit|serious|criticality|impact/i;
+
+/**
+ * Per-module assistant settings, kept like the case panel's settings: one
+ * DashboardMaster row (widget_name 'assistant_config') whose filter holds JSON
+ * { "ask_area": true, "ask_spot": true, "ask_photo": true }. Missing keys mean true.
+ */
+const ASSISTANT_CONFIG_WIDGET = 'assistant_config';
+const DEFAULT_ASKS = { area: true, spot: true, photo: true };
+function parseAsks(rows) {
+  const row = (rows || []).find((r) => r.widget_name === ASSISTANT_CONFIG_WIDGET);
+  if (!row || !row.filter) return { ...DEFAULT_ASKS };
+  try {
+    const c = JSON.parse(row.filter);
+    return { area: c.ask_area !== false, spot: c.ask_spot !== false, photo: c.ask_photo !== false };
+  } catch (err) {
+    return { ...DEFAULT_ASKS };
+  }
 }
 
 /** Wards: the most specific active areas. A record must sit on one of these. */
@@ -309,9 +355,9 @@ function isActive(field, draft, fields) {
 
 const PHOTO_FIELD = /photo|image|picture|evidence|pic/i;
 
-/** The service's photo field, if it takes one. */
+/** The service's photo field, if it takes one (by role, or by name on an older form). */
 function photoField(service) {
-  return service.fileFields.find((f) => PHOTO_FIELD.test(f.key) || PHOTO_FIELD.test(f.label)) || null;
+  return service.roles ? service.roles.photo : null;
 }
 
 /**
@@ -326,12 +372,12 @@ function missing(session) {
   return {
     detail: Boolean(session.needDetail),
     fields: fields.filter((f) => f.mandatory && open(f)),
-    ward: !session.ward,
-    place: !session.place && !session.askedPlace,
+    ward: session.service.asks.area && !session.ward,
+    place: session.service.asks.spot && !session.place && !session.askedPlace,
     // Optional details the form asks the assistant to collect; each can be skipped.
     extras: fields.filter((f) => !f.mandatory && f.chatAsk && open(f) && !skipped.includes(f.key))
       .sort((a, b) => a.chatOrder - b.chatOrder),
-    photo: Boolean(photoField(session.service)) && !session.pendingFiles.length && !session.askedPhoto,
+    photo: session.service.asks.photo && Boolean(photoField(session.service)) && !session.pendingFiles.length && !session.askedPhoto,
   };
 }
 
@@ -463,7 +509,8 @@ function ruleSubject(source) {
 
 /** What the title is made from: the description field, or the first thing they said. */
 function titleSource(session) {
-  const long = session.service.fields.find((f) => f.type === 'longtext' && session.draft[f.key]);
+  const d = session.service.roles.description;
+  const long = d && session.draft[d.key] ? d : session.service.fields.find((f) => f.type === 'longtext' && session.draft[f.key]);
   return String((long ? session.draft[long.key] : session.said[0]) || '');
 }
 
@@ -491,11 +538,12 @@ function titleIsAi(session) {
 
 function summaryOf(session) {
   const rows = [{ label: titleIsAi(session) ? 'What (title worded by AI)' : 'What', value: titleFrom(session) }];
-  rows.push({ label: 'Where', value: [session.ward?.name, session.place].filter(Boolean).join(', ') });
+  const where = [session.ward?.name, session.place].filter(Boolean).join(', ');
+  if (where) rows.push({ label: 'Where', value: where });
   if (session.coords) rows.push({ label: 'Map pin', value: 'Your shared location' });
   for (const f of session.service.fields) {
     if (session.draft[f.key] === undefined) continue;
-    const label = PERSON_NAME.test(f.key) || PERSON_NAME.test(f.label) ? 'Your name' : f.plain.charAt(0).toUpperCase() + f.plain.slice(1);
+    const label = session.service.roles.personName && f.key === session.service.roles.personName.key ? 'Your name' : f.plain.charAt(0).toUpperCase() + f.plain.slice(1);
     rows.push({ label, value: String(session.draft[f.key]) });
   }
   if (session.pendingFiles.length) rows.push({ label: 'Attached', value: session.pendingFiles.map((f) => f.originalName).join(', ') });
@@ -547,20 +595,26 @@ async function fileRequest(session, user, sessionId) {
   if (!catalog.some((s) => s.id === svc.id)) {
     throw Object.assign(new Error('That service is not available to you.'), { statusCode: 403 });
   }
-  // 2. Every required detail must be present and valid; a ward must be set.
+  // 2. Every required detail must be present and valid; a ward must be set,
+  //    unless the module's assistant settings say it does not ask for one.
   const gaps = missing(session);
   if (gaps.fields.length || gaps.ward) throw Object.assign(new Error('Some required details are missing.'), { statusCode: 400 });
   for (const f of svc.fields) {
     if (session.draft[f.key] === undefined) continue;
     if (!validateValue(f, session.draft[f.key]).ok) throw Object.assign(new Error('A detail is not valid.'), { statusCode: 400 });
   }
-  const ward = await prisma.jurisdictionMaster.findFirst({ where: { jurisdiction_id: session.ward.id, status: 'active' } });
-  if (!ward) throw Object.assign(new Error('That area is not available.'), { statusCode: 400 });
+  let ward = null;
+  if (session.ward) {
+    ward = await prisma.jurisdictionMaster.findFirst({ where: { jurisdiction_id: session.ward.id, status: 'active' } });
+    if (!ward) throw Object.assign(new Error('That area is not available.'), { statusCode: 400 });
+  }
+  // No area: the record has none, which puts it in the general coordinator's queue.
+  const area = ward ? ward.name : null;
 
   // 3. The workflow must let this person send their own draft.
   const firstStatus = await firstWorkflowStatus(prisma, svc.id);
   const allowed = await validateWorkflowTransition({
-    entity: { entity_type_id: svc.id, owner_user_id: user.user_id, area: ward.name, status: 'draft' },
+    entity: { entity_type_id: svc.id, owner_user_id: user.user_id, area, status: 'draft' },
     targetStatus: firstStatus,
     actorRole: user.role,
     actorUserId: user.user_id,
@@ -574,9 +628,9 @@ async function fileRequest(session, user, sessionId) {
       data: {
         entity_type_id: svc.id,
         owner_user_id: user.user_id,
-        jurisdiction_id: ward.jurisdiction_id,
+        jurisdiction_id: ward ? ward.jurisdiction_id : null,
         name: session.confirmedTitle || titleFrom(session),
-        area: ward.name,
+        area,
         location: session.place || null,
         latitude: session.coords?.latitude ?? null,
         longitude: session.coords?.longitude ?? null,
@@ -628,7 +682,7 @@ async function fileRequest(session, user, sessionId) {
   const next = await prisma.workflowMaster.findMany({ where: { entity_type_id: svc.id, trigger: firstStatus }, select: { stage: true } });
   const stages = new Set(next.map((n) => n.stage));
   let who = 'A reviewer';
-  if (stages.has('coordinator_area')) who = `The ${ward.name} area coordinator`;
+  if (stages.has('coordinator_area') && ward) who = `The ${ward.name} area coordinator`;
   else if (stages.has('coordinator_general')) who = 'A coordinator';
   else if (stages.has('director')) who = 'The director';
 
@@ -730,12 +784,12 @@ async function startService(session, svc, user, wards, firstMessage) {
   // What is already known without asking.
   const dbUser = await prisma.user.findUnique({ where: { user_id: user.user_id }, select: { name: true } }).catch(() => null);
   for (const f of session.service.fields) {
-    if ((PERSON_NAME.test(f.key) || PERSON_NAME.test(f.label)) && dbUser?.name) session.draft[f.key] = dbUser.name;
+    if (session.service.roles.personName && f.key === session.service.roles.personName.key && dbUser?.name) session.draft[f.key] = dbUser.name;
   }
   // The citizen's own words are the description, if they say what is wrong.
   // A topic alone ("a complaint regarding water") is followed by one question
   // about what exactly is happening, before anything else.
-  const story = session.service.fields.find((f) => f.type === 'longtext' && f.mandatory);
+  const story = session.service.roles.description;
   const words = String(firstMessage || '').replace(/\[.*?\]/g, '').trim();
   session.needDetail = Boolean(story) && isThin(words);
   if (story && !session.needDetail && validateValue(story, words).ok && understanding.tokens(words).length >= 2) session.draft[story.key] = words;
@@ -975,7 +1029,7 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   // ── Answer to "what exactly is happening?" ────────────────────────────────
   let detailGiven = false;
   if (asked === '__detail') {
-    const story = session.service.fields.find((f) => f.type === 'longtext' && f.mandatory);
+    const story = session.service.roles.description;
     const n = understanding.normalize(message);
     const opening = String(session.said[0] || '').trim();
     const topicWord = understanding.tokens(ruleSubject(opening)).filter((w) => !VAGUE_WORDS.has(w))[0] || '';
@@ -1095,7 +1149,7 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   const failedAsked = refused.find((r) => r.field.key === asked);
   // They answered a choice with a description ("no water since 2 days, the whole
   // building…"): keep it as detail for the team, then ask the choice again.
-  const story = session.service.fields.find((f) => f.type === 'longtext' && f.mandatory);
+  const story = session.service.roles.description;
   if (failedAsked && failedAsked.field.type === 'choice' && story && understanding.tokens(message).length >= 5) {
     const before = String(session.draft[story.key] || '').trim();
     if (!before.toLowerCase().includes(message.toLowerCase())) {

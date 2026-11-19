@@ -208,7 +208,7 @@ const MODULE_DEFINITIONS = [
           {
             name: 'Main',
             parameters: [
-              { field_key: 'initiative_description', label: 'Initiative Description', field_type: 'textarea', control_type: 'textarea', mandatory: true, validation_rule: 'required' },
+              { field_key: 'initiative_description', label: 'Initiative Description', field_type: 'textarea', control_type: 'textarea', mandatory: true, validation_rule: 'required', options: { chat: { role: 'description' } } },
               { field_key: 'initiative_type', label: 'Initiative Category / Type', field_type: 'select', control_type: 'dropdown', mandatory: true, validation_rule: 'required', options: { choices: ['Cleanliness', 'Environmental', 'Women Safety', 'Education Awareness', 'Health & Sanitation', 'Infrastructure', 'Digital Literacy', 'Other'] } },
             ],
           },
@@ -247,7 +247,7 @@ const MODULE_DEFINITIONS = [
               { field_key: 'proposed_start_date', label: 'Proposed Start Date', field_type: 'date', control_type: 'datepicker', mandatory: false },
               { field_key: 'expected_duration', label: 'Expected Duration', field_type: 'text', control_type: 'input', mandatory: false },
               { field_key: 'estimated_budget', label: 'Estimated Budget', field_type: 'number', control_type: 'input', mandatory: false },
-              { field_key: 'citizen_urgency', label: 'Citizen-assessed Urgency', field_type: 'select', control_type: 'dropdown', mandatory: false, options: { choices: ['Low', 'Normal', 'High', 'Critical'], default: 'Normal' } },
+              { field_key: 'citizen_urgency', label: 'Citizen-assessed Urgency', field_type: 'select', control_type: 'dropdown', mandatory: false, options: { chat: { role: 'severity' }, choices: ['Low', 'Normal', 'High', 'Critical'], default: 'Normal' } },
             ],
           },
         ],
@@ -272,7 +272,7 @@ const MODULE_DEFINITIONS = [
             name: 'Main',
             parameters: [
               { field_key: 'supporting_documents', label: 'Supporting Documents', field_type: 'file', control_type: 'file', mandatory: false },
-              { field_key: 'reference_images', label: 'Photos / Reference Images', field_type: 'file', control_type: 'file', mandatory: false },
+              { field_key: 'reference_images', label: 'Photos / Reference Images', field_type: 'file', control_type: 'file', mandatory: false, options: { chat: { role: 'photo' } } },
             ],
           },
         ],
@@ -292,10 +292,10 @@ const MODULE_DEFINITIONS = [
           {
             name: 'Complaint',
             parameters: [
-              { field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', control_type: 'textarea', mandatory: true, validation_rule: 'required|min:20' },
+              { field_key: 'complaint_details', label: 'Complaint Details', field_type: 'textarea', control_type: 'textarea', mandatory: true, validation_rule: 'required|min:20', options: { chat: { role: 'description' } } },
               // options.chat tells the civic assistant how to ask a field, and to ask optional ones too.
               { field_key: 'category', label: 'Grievance Category', field_type: 'select', control_type: 'dropdown', options: { choices: ['Infrastructure', 'Sanitation', 'Safety', 'Utilities', 'Public Transport', 'Water Supply', 'Noise Pollution', 'Other'], chat: { question: 'What kind of problem is it: Infrastructure, Sanitation, Safety, Utilities, Public Transport, Water Supply, Noise Pollution or Other?' } }, mandatory: true, validation_rule: 'required' },
-              { field_key: 'severity', label: 'Severity', field_type: 'select', control_type: 'dropdown', options: { choices: ['Minor', 'Moderate', 'Severe', 'Critical'], default: 'Moderate', chat: { question: 'How bad is it right now? Pick the severity that fits: Minor, Moderate, Severe or Critical.' } }, mandatory: true, validation_rule: 'required' },
+              { field_key: 'severity', label: 'Severity', field_type: 'select', control_type: 'dropdown', options: { choices: ['Minor', 'Moderate', 'Severe', 'Critical'], default: 'Moderate', chat: { role: 'severity', question: 'How bad is it right now? Pick the severity that fits: Minor, Moderate, Severe or Critical.' } }, mandatory: true, validation_rule: 'required' },
               { field_key: 'affected_scope', label: 'Who Is Affected', field_type: 'select', control_type: 'dropdown', options: { choices: ['Just me', 'My building or society', 'My street or lane', 'The whole area'], chat: { ask: true, order: 2, question: 'Who is affected by this: just me, my building or society, my street or lane, or the whole area?' } }, mandatory: false },
             ],
           },
@@ -314,8 +314,8 @@ const MODULE_DEFINITIONS = [
           {
             name: 'Reporter',
             parameters: [
-              { field_key: 'reporter_name', label: 'Reporter Name', field_type: 'text', control_type: 'input', mandatory: true, validation_rule: 'required' },
-              { field_key: 'reporter_phone', label: 'Reporter Phone', field_type: 'phone', control_type: 'input', mandatory: false, options: { chat: { ask: true, order: 3, question: 'Can the team call you if they need to know more? Share a phone number, or say skip.' } } },
+              { field_key: 'reporter_name', label: 'Reporter Name', field_type: 'text', control_type: 'input', mandatory: true, validation_rule: 'required', options: { chat: { role: 'person_name' } } },
+              { field_key: 'reporter_phone', label: 'Reporter Phone', field_type: 'phone', control_type: 'input', mandatory: false, options: { chat: { role: 'contact_phone', ask: true, order: 3, question: 'Can the team call you if they need to know more? Share a phone number, or say skip.' } } },
               { field_key: 'reporter_email', label: 'Reporter Email', field_type: 'email', control_type: 'input', mandatory: false },
             ],
           },
@@ -327,7 +327,7 @@ const MODULE_DEFINITIONS = [
           {
             name: 'Attachments',
             parameters: [
-              { field_key: 'photo_evidence', label: 'Photo Evidence', field_type: 'file', control_type: 'file', mandatory: false },
+              { field_key: 'photo_evidence', label: 'Photo Evidence', field_type: 'file', control_type: 'file', mandatory: false, options: { chat: { role: 'photo' } } },
               { field_key: 'supporting_document', label: 'Supporting Document', field_type: 'file', control_type: 'file', mandatory: false },
             ],
           },
@@ -348,7 +348,7 @@ const MODULE_DEFINITIONS = [
           {
             name: 'Personal Information',
             parameters: [
-              { field_key: 'full_name', label: 'Full Name', field_type: 'text', control_type: 'input', mandatory: true, validation_rule: 'required|max:100' },
+              { field_key: 'full_name', label: 'Full Name', field_type: 'text', control_type: 'input', mandatory: true, validation_rule: 'required|max:100', options: { chat: { role: 'person_name' } } },
               { field_key: 'date_of_birth', label: 'Date of Birth', field_type: 'date', control_type: 'datepicker', mandatory: false },
               { field_key: 'gender', label: 'Gender', field_type: 'select', control_type: 'dropdown', options: { choices: ['Male', 'Female', 'Non-Binary', 'Prefer Not to Say'] }, mandatory: false },
               { field_key: 'profile_email', label: 'Email Address', field_type: 'email', control_type: 'input', mandatory: false },
@@ -780,6 +780,7 @@ const MODULE_DEFINITIONS = [
 
     // ── 7. Case panel flag rules (configuration, per module) ──
     await seedCaseFlagConfig();
+    await seedAssistantConfig();
 
     await prisma.$disconnect();
   } catch (err) {
@@ -1274,6 +1275,40 @@ const CASE_FLAG_RULES = {
     { id: 'waiting_7_days', label: 'Waiting more than 7 days at this status', field: 'days_in_status', op: 'gt', value: 7, statuses: ['submitted', 'coordinator_approved'] },
   ],
 };
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Civic assistant settings per module (widget_name 'assistant_config'):
+//  whether the chat asks for an area, the exact spot and a photo. Missing keys
+//  mean "ask". An existing row is left alone so an admin's edits survive a re-seed.
+// ════════════════════════════════════════════════════════════════════════════
+
+const ASSISTANT_CONFIG = {
+  Grievance: { ask_area: true, ask_spot: true, ask_photo: true },
+  Movement: { ask_area: true, ask_spot: true, ask_photo: true },
+  // A profile is about the person, not a place or a problem to photograph.
+  'Citizen Passport': { ask_area: false, ask_spot: false, ask_photo: false },
+};
+
+async function seedAssistantConfig() {
+  for (const [name, config] of Object.entries(ASSISTANT_CONFIG)) {
+    const type = await prisma.entityType.findFirst({ where: { name } });
+    if (!type) continue;
+    const existing = await prisma.dashboardMaster.findFirst({
+      where: { entity_type_id: type.entity_type_id, widget_name: 'assistant_config' },
+    });
+    if (existing) continue;
+    await prisma.dashboardMaster.create({
+      data: {
+        entity_type_id: type.entity_type_id,
+        widget_name: 'assistant_config',
+        metric: 'config',
+        display_type: 'config',
+        filter: JSON.stringify(config),
+      },
+    });
+  }
+  console.log('  Civic assistant settings seeded.');
+}
 
 async function seedCaseFlagConfig() {
   for (const [typeName, flags] of Object.entries(CASE_FLAG_RULES)) {

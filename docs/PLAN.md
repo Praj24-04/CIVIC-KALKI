@@ -142,6 +142,22 @@ No new pages: both are widgets declared by `DashboardMaster.display_type` and mo
 - **Fallbacks:** 3D is offered only with WebGL available, viewport ≥ 768 px and reduced-motion off. Rendering pauses when the widget is off screen. The table stays in the DOM for screen readers.
 - **Budget on the demo laptop:** 3D chunk loads in under 1 s, holds ≥ 30 fps, otherwise the toggle is hidden. Page interactions respond in under 200 ms.
 
+## Civic assistant: market-ready roadmap (agreed 19 Nov)
+
+Principle: **code** holds only what must be the same everywhere (safety rules, the conversation engine, parsers); **configuration** holds what is asked and where it goes; the **AI** only understands and words, and never decides filing, routing, seriousness or completeness.
+
+| # | Slice | Done when |
+|---|---|---|
+| A1a | Field roles (`options.chat.role`: description, photo, severity, person_name, contact_phone) and a per-module `assistant_config` row (`DashboardMaster`, like `case_flag_config`: ask area, exact spot, photo). The engine uses them; name-guessing remains only for forms without roles | **Done** 19 Nov: a module built with odd field names files through chat by its roles; with area/spot/photo off it asks none of them and files with no area (general coordinator queue); Citizen Passport's profile photo is no longer taken for a problem photo. Seeded roles on Grievance, Movement, Citizen Passport |
+| A1b | No-Code Builder: per field "ask in chat", question, role; per module area/spot/photo | A module deployed from the Builder is filed through chat with its own questions |
+| A1c | Edit an existing module's chat settings: routes in the existing form controller, a panel on the existing Modules page | An admin changes a question's wording and the chat uses it at once |
+| A2 | Replies in the citizen's language: language packs for the fixed sentences, AI replies in the citizen's language; replace the unofficial translate endpoint | A Marathi conversation is asked and answered in Marathi |
+| A3 | AI reads the photo: describes it and suggests a category, which the citizen confirms | A pothole photo alone produces a correct draft |
+| A4 | Area aliases on jurisdictions | "SB Road" files under Shivajinagar |
+| A5 | First turn in one AI call; typing indicator | First reply measured faster with a real key |
+| A6 | Duplicate check before filing ("someone reported this nearby") | Test with a similar case |
+| A7 | A release check of ~30 real conversations (en/hi/mr) against the real AI | Completion rate, questions per report and time reported |
+
 ## Dropped
 
 | ID | Item | Reason |

@@ -402,6 +402,121 @@ describe('Civic assistant', () => {
   });
 
   // ── With the AI understanding the words ────────────────────────────────────
+  // ── Field roles and module settings come from metadata (A1a) ─────────────
+  describe('field roles and module settings', () => {
+    let custom; // a module built like the No-Code Builder would, with odd field names
+    const made = {};
+
+    beforeAll(async () => {
+      const form0 = await prisma.formMaster.findFirst({ where: { entity_type_id: grievance.entity_type_id }, include: { sections: { include: { subsections: { include: { parameters: true } } } } } });
+      const categoryId = form0.sections[0].subsections[0].parameters[0].category_id;
+      const tag = Date.now();
+      made.type = await prisma.entityType.create({ data: { domain_id: grievance.domain_id, name: `Tree Care ${tag}`, description: 'Report a fallen or dangerous tree, or a tree that needs trimming' } });
+      made.form = await prisma.formMaster.create({ data: { entity_type_id: made.type.entity_type_id, form_name: 'Tree form' } });
+      made.section = await prisma.sectionMaster.create({ data: { form_id: made.form.form_id, section_name: 'Main', display_order: 1 } });
+      made.sub = await prisma.subsectionMaster.create({ data: { section_id: made.section.section_id, subsection_name: 'Main' } });
+      const param = (field_key, label, field_type, mandatory, options, display_order) => prisma.parameterMaster.create({ data: {
+        subsection_id: made.sub.subsection_id, category_id: categoryId, field_key, label, field_type, control_type: field_type, mandatory, options, display_order,
+      } });
+      await param('what_we_saw', 'Observation', 'textarea', true, { chat: { role: 'description' } }, 1);
+      await param('how_risky', 'Risk Level', 'select', true, { choices: ['Low', 'Medium', 'High'], chat: { role: 'severity', question: 'How risky is it: Low, Medium or High?' } }, 2);
+      await param('filed_by', 'Filed By', 'text', true, { chat: { role: 'person_name' } }, 3);
+      await param('snap', 'Snap', 'file', false, { chat: { role: 'photo' } }, 4);
+      await param('evidence_pdf', 'Evidence', 'file', false, null, 5); // named like a photo, but not one
+      await prisma.workflowMaster.create({ data: { entity_type_id: made.type.entity_type_id, trigger: 'draft', action: 'submitted', stage: 'citizen' } });
+      custom = made.type;
+    });
+
+    afterAll(async () => {
+      const ids = (await prisma.entity.findMany({ where: { entity_type_id: made.type.entity_type_id }, select: { entity_id: true } })).map((e) => e.entity_id);
+      await prisma.parameterValue.deleteMany({ where: { entity_id: { in: ids } } });
+      await prisma.approvalHistory.deleteMany({ where: { entity_id: { in: ids } } });
+      await prisma.auditLog.deleteMany({ where: { entity_id: { in: ids } } });
+      await prisma.fileRepository.deleteMany({ where: { entity_id: { in: ids } } });
+      await prisma.entity.deleteMany({ where: { entity_id: { in: ids } } });
+      await prisma.parameterMaster.deleteMany({ where: { subsection_id: made.sub.subsection_id } });
+      await prisma.subsectionMaster.delete({ where: { subsection_id: made.sub.subsection_id } });
+      await prisma.sectionMaster.delete({ where: { section_id: made.section.section_id } });
+      await prisma.formMaster.delete({ where: { form_id: made.form.form_id } });
+      await prisma.workflowMaster.deleteMany({ where: { entity_type_id: made.type.entity_type_id } });
+      await prisma.dashboardMaster.deleteMany({ where: { entity_type_id: made.type.entity_type_id } });
+      await prisma.entityType.delete({ where: { entity_type_id: made.type.entity_type_id } });
+    });
+
+    const startCustom = async (id, text) => {
+      await say(id, 'hello');
+      const s = _sessions.get(id);
+      s.phase = 'choosing'; s.choices = [custom.entity_type_id]; s.said = [text];
+      return say(id, 'yes');
+    };
+
+    test('a module with roles needs no field-name conventions', async () => {
+      const id = sid();
+      let r = await startCustom(id, 'A big branch of the old tree has cracked and is hanging over the footpath');
+      const svc = _sessions.get(id).service;
+      expect(svc.roles.description.key).toBe('what_we_saw');
+      expect(svc.roles.photo.key).toBe('snap'); // "Evidence" is not taken for the photo
+      expect(_sessions.get(id).draft.what_we_saw).toMatch(/branch of the old tree/); // the description, by role
+      expect(_sessions.get(id).draft.filed_by).toBe(citizen.user.name); // the name, by role
+      expect(_sessions.get(id).asked).toBe('how_risky');
+      expect(r.text).toMatch(/How risky is it: Low, Medium or High\?/);
+      for (const [asked, answer] of [['how_risky', 'High'], ['__ward', WARD], ['__place', 'near the bus stop'], ['__photo', 'no photo']]) {
+        expect(_sessions.get(id).asked).toBe(asked);
+        r = await say(id, answer);
+      }
+      expect(r.type).toBe('confirm');
+      r = await say(id, 'yes');
+      expect(r.type).toBe('submitted');
+    });
+
+    test('a severity role is the citizen\'s to answer, whatever the field is called', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      mockGenerate.mockImplementation(async (payload) => {
+        const p = Array.isArray(payload) ? payload[0] : String(payload);
+        if (p.includes('extract facts')) return reply({ intent: 'answer', values: { how_risky: 'High' }, area: null, place: null });
+        return reply({ text: 'x' });
+      });
+      const id = sid();
+      await startCustom(id, 'A big branch of the old tree has cracked and is hanging over the footpath');
+      expect(_sessions.get(id).draft.how_risky).toBeUndefined();
+      expect(_sessions.get(id).asked).toBe('how_risky');
+    });
+
+    test('module settings can switch off the area, spot and photo questions; the record has no area then', async () => {
+      const row = await prisma.dashboardMaster.create({ data: {
+        entity_type_id: custom.entity_type_id, widget_name: 'assistant_config', metric: 'config', display_type: 'config',
+        filter: JSON.stringify({ ask_area: false, ask_spot: false, ask_photo: false }),
+      } });
+      try {
+        const id = sid();
+        let r = await startCustom(id, 'A big branch of the old tree has cracked and is hanging over the footpath');
+        const asked = [];
+        for (let i = 0; i < 6 && r.type === 'question'; i += 1) { asked.push(_sessions.get(id).asked); r = await say(id, 'High'); }
+        expect(asked).toEqual(['how_risky']);
+        expect(r.type).toBe('confirm');
+        r = await say(id, 'yes');
+        expect(r.type).toBe('submitted');
+        expect(r.text).not.toMatch(/area coordinator/);
+        const e = await prisma.entity.findUnique({ where: { entity_id: r.entity_id } });
+        expect(e.area).toBeNull();
+        expect(e.jurisdiction_id).toBeNull();
+      } finally {
+        await prisma.dashboardMaster.delete({ where: { dashboard_id: row.dashboard_id } });
+      }
+    });
+
+    test('a profile photo is not mistaken for a photo of a problem', async () => {
+      const passport = await prisma.entityType.findFirst({ where: { name: 'Citizen Passport' } });
+      const catalog = await _loadServiceCatalog('citizen');
+      const svc = catalog.find((x) => x.id === passport.entity_type_id);
+      expect(svc).toBeTruthy();
+      const { _describeService } = require('../services/agentFormFiller');
+      const described = _describeService(svc);
+      expect(described.roles.photo).toBeNull();
+      expect(described.asks).toEqual({ area: false, spot: false, photo: false });
+    });
+  });
+
   // ── What a coordinator needs (19 Nov) ────────────────────────────────────
   describe('what a coordinator needs', () => {
     const { _soundsLike, _isThin } = require('../services/agentFormFiller');
