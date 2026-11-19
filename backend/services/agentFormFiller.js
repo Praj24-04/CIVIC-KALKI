@@ -521,6 +521,8 @@ function titleSource(session) {
  * current description; otherwise the resident's words without the openings.
  */
 function titleFrom(session) {
+  // A title the citizen typed on the summary card is used exactly as written.
+  if (session.customTitle) return session.customTitle;
   const source = titleSource(session);
   const ai = session.aiTitle && session.aiTitleFor === source ? session.aiTitle : null;
   let subject = ai || ruleSubject(source);
@@ -534,6 +536,7 @@ function titleFrom(session) {
 }
 
 function titleIsAi(session) {
+  if (session.customTitle) return false;
   return Boolean(session.aiTitle && session.aiTitleFor === titleSource(session));
 }
 
@@ -549,6 +552,79 @@ function summaryOf(session) {
   }
   if (session.pendingFiles.length) rows.push({ label: 'Attached', value: session.pendingFiles.map((f) => f.originalName).join(', ') });
   return rows;
+}
+
+/**
+ * What the citizen may change on the summary card, and how each is edited.
+ * Kept apart from the summary rows (which stay as shown). Attachments and the
+ * map pin are not edited here.
+ */
+function editableOf(session, wards) {
+  const out = [{ key: '__title', label: 'Title', value: titleFrom(session), type: 'text', max: 80, optional: false }];
+  if (session.service.asks.area || session.ward) {
+    const names = wards.map((w) => w.name);
+    out.push({ key: '__ward', label: 'Area', value: session.ward ? session.ward.name : '', type: names.length && names.length <= 60 ? 'choice' : 'text', options: names.length <= 60 ? names : [], optional: !session.service.asks.area });
+  }
+  if (session.service.asks.spot || session.place) out.push({ key: '__place', label: 'Exact spot', value: session.place || '', type: 'text', max: 120, optional: true });
+  const personKey = session.service.roles.personName && session.service.roles.personName.key;
+  for (const f of session.service.fields) {
+    const filled = session.draft[f.key] !== undefined;
+    if (!filled && !f.mandatory && !f.chatAsk) continue;
+    if (!isActive(f, session.draft, session.service.fields)) continue;
+    out.push({
+      key: f.key,
+      label: f.key === personKey ? 'Your name' : f.plain.charAt(0).toUpperCase() + f.plain.slice(1),
+      value: filled ? String(session.draft[f.key]) : '',
+      type: f.type,
+      options: f.options,
+      optional: !f.mandatory,
+    });
+  }
+  return out;
+}
+
+const MAX_EDITS = 40;
+
+/**
+ * Apply the citizen's changes from the summary card, each checked the same way
+ * as an answer in the chat. Returns the problems found (nothing is applied for a
+ * value that does not pass).
+ */
+function applyEdits(session, edits, wards) {
+  const problems = [];
+  const changed = [];
+  const entries = Object.entries(edits || {}).slice(0, MAX_EDITS);
+  for (const [key, rawValue] of entries) {
+    const raw = rawValue === null || rawValue === undefined ? '' : String(rawValue).trim();
+    if (key === '__title') {
+      if (raw.length < 3 || raw.length > 80) { problems.push('The title needs 3 to 80 characters.'); continue; }
+      if (raw !== titleFrom(session)) { session.customTitle = raw; changed.push('title'); }
+    } else if (key === '__ward') {
+      if (!raw) {
+        if (session.service.asks.area) problems.push('The area is needed to send this to the right office.');
+        else if (session.ward) { session.ward = null; changed.push('area'); }
+        continue;
+      }
+      const w = understanding.findWard(raw, wards);
+      if (!w) { problems.push(`I could not find the area "${raw.slice(0, 40)}".`); continue; }
+      if (!session.ward || session.ward.id !== w.id) { session.ward = w; changed.push('area'); }
+    } else if (key === '__place') {
+      const v = raw.slice(0, 120) || null;
+      if ((session.place || null) !== v) { session.place = v; changed.push('exact spot'); }
+    } else {
+      const f = session.service.fields.find((x) => x.key === key);
+      if (!f) continue; // not a field of this service: ignored
+      if (!raw) {
+        if (f.mandatory) problems.push(`${f.plain.charAt(0).toUpperCase() + f.plain.slice(1)} is needed.`);
+        else if (session.draft[f.key] !== undefined) { delete session.draft[f.key]; changed.push(f.plain); }
+        continue;
+      }
+      const check = validateValue(f, raw);
+      if (!check.ok) { problems.push(check.why); continue; }
+      if (session.draft[f.key] !== check.value) { session.draft[f.key] = check.value; changed.push(f.plain); }
+    }
+  }
+  return { problems, changed };
 }
 
 function confirmReply(session, lead = 'Here is what I will send:') {
@@ -862,18 +938,20 @@ function titleWaitMs() {
 /**
  * One turn, answered in the citizen's language. The engine builds the reply in
  * English; with the AI on it is then translated (agentLanguage.localizeReply).
- * @param {object} [options] { lang } the language picked in the app
+ * @param {object} [options] { lang } the language picked in the app;
+ *   { edits } changes made on the summary card: { key: value }
  */
 async function continueFormFilling(sessionId, userMessage, user, _unused = [], attachedFile = null, options = {}) {
   const lang = language.replyLanguage(options && options.lang, userMessage);
-  const reply = await englishTurn(sessionId, userMessage, user, attachedFile, lang);
+  const edits = options && options.edits && typeof options.edits === 'object' && !Array.isArray(options.edits) ? options.edits : null;
+  const reply = await englishTurn(sessionId, userMessage, user, attachedFile, lang, edits);
   const session = sessions.get(sessionId);
   if (session && session.userId === user.user_id) session.replyLang = lang;
   return language.localizeReply(reply, lang);
 }
 
-async function englishTurn(sessionId, userMessage, user, attachedFile = null, lang = 'en') {
-  let reply = await conversationTurn(sessionId, userMessage, user, attachedFile);
+async function englishTurn(sessionId, userMessage, user, attachedFile = null, lang = 'en', edits = null) {
+  let reply = await conversationTurn(sessionId, userMessage, user, attachedFile, edits);
   const ask = reply && reply._ask;
   if (reply) delete reply._ask;
   const session = sessions.get(sessionId);
@@ -886,6 +964,8 @@ async function englishTurn(sessionId, userMessage, user, attachedFile = null, la
         await voice.withinBudget(session.titlePromise, titleWaitMs());
         if (titleIsAi(session)) reply = { ...reply, ...confirmReply(session, reply.lead || undefined) };
       }
+      // What the citizen can change on the card, and how.
+      reply = { ...reply, editable: editableOf(session, await loadWards()) };
     }
     const progress = progressOf(session);
     return progress ? { ...reply, progress } : reply;
@@ -922,7 +1002,7 @@ async function englishTurn(sessionId, userMessage, user, attachedFile = null, la
   return worded.voice === 'ai' ? { ...reply, text: worded.text, voice: 'ai' } : { ...reply, voice: 'rules' };
 }
 
-async function conversationTurn(sessionId, userMessage, user, attachedFile) {
+async function conversationTurn(sessionId, userMessage, user, attachedFile, edits = null) {
   let session = getSession(sessionId, user.user_id, user.role);
   if (session.phase === 'done') {
     clearSession(sessionId);
@@ -945,6 +1025,18 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   }
 
   const [catalog, wards] = await Promise.all([loadServiceCatalog(user.role), loadWards()]);
+
+  // ── Changes made on the summary card ──────────────────────────────────────
+  if (edits) {
+    if (!session.service || session.phase !== 'confirming') {
+      return { type: 'guidance', text: 'There is nothing to edit yet. Tell me what is going on and I will put it together for you.' };
+    }
+    const { problems, changed } = applyEdits(session, edits, wards);
+    let lead = 'Nothing was changed. Here is what I will send:';
+    if (problems.length) lead = `I could not change everything: ${problems.join(' ')} Here is what I will send:`;
+    else if (changed.length) lead = `Updated: ${changed.join(', ')}. Here is what I will send:`;
+    return confirmReply(session, lead);
+  }
   // The phone's position names an area we cover: offer it when asking where.
   if (device && device.text && !session.declinedNearWard) session.nearWard = understanding.findWard(device.text, wards) || session.nearWard || null;
   if (!catalog.length) {

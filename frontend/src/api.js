@@ -186,10 +186,11 @@ export const agent = {
    *  @param {string} message    - Citizen's free-text message
    *  @param {File|null} attachment - Optional document/photo file
    */
-  chat: async (sessionId, message, attachment = null, lang = 'en') => {
+  chat: async (sessionId, message, attachment = null, lang = 'en', edits = null) => {
     // lang: the language picked in the app; the assistant replies in it (with AI).
+    // edits: changes made on the summary card, { key: value }.
     if (!attachment) {
-      return request('POST', '/agent/chat', { sessionId, message, lang });
+      return request('POST', '/agent/chat', edits ? { sessionId, message, lang, edits } : { sessionId, message, lang });
     }
     const formData = new FormData();
     formData.append('sessionId', sessionId);

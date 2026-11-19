@@ -72,6 +72,17 @@ router.post(
     try {
       const sessionId = req.body?.sessionId;
       const message   = req.body?.message;
+      // Changes made on the summary card: { key: value }, at most 40, values up to 2000 characters.
+      const rawEdits = req.body?.edits;
+      let edits = null;
+      if (rawEdits !== undefined && rawEdits !== null) {
+        if (typeof rawEdits !== 'object' || Array.isArray(rawEdits) || Object.keys(rawEdits).length > 40
+          || Object.values(rawEdits).some((v) => v !== null && typeof v !== 'string' && typeof v !== 'number')
+          || Object.values(rawEdits).some((v) => String(v ?? '').length > 2000)) {
+          return next(createError('"edits" must be an object of up to 40 text values.', 400));
+        }
+        edits = rawEdits;
+      }
 
       if (!sessionId || typeof sessionId !== 'string' || !sessionId.trim()) {
         return next(createError('"sessionId" is required and must be a non-empty string.', 400));
@@ -81,7 +92,9 @@ router.post(
       let cleanMessage = typeof message === 'string' ? message.trim() : '';
 
       if (!cleanMessage) {
-        if (fileUploaded) {
+        if (edits) {
+          cleanMessage = 'Edited the details';
+        } else if (fileUploaded) {
           cleanMessage = `I have uploaded an attachment: ${req.file.originalname}. Please inspect and file this.`;
         } else {
           return next(createError('"message" is required and must be a non-empty string.', 400));
@@ -112,7 +125,7 @@ router.post(
 
       // The language picked in the app; the assistant also follows the script typed in.
       const lang = typeof req.body?.lang === 'string' && isSupported(req.body.lang.trim()) ? req.body.lang.trim() : 'en';
-      const result = await continueFormFilling(cleanSessionId, cleanMessage, user, [], attachedFile, { lang });
+      const result = await continueFormFilling(cleanSessionId, cleanMessage, user, [], attachedFile, { lang, edits });
 
       return res.status(200).json({ success: true, data: result });
     } catch (err) {

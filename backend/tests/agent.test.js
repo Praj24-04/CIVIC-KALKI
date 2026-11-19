@@ -402,6 +402,81 @@ describe('Civic assistant', () => {
   });
 
   // ── With the AI understanding the words ────────────────────────────────────
+  // ── Editing the summary card ─────────────────────────────────────────────
+  describe('editing the summary before sending', () => {
+    const toSummary = async (id) => {
+      let r = await say(id, "There's a pothole outside my building");
+      for (const t of ['infrastructure', 'severe', WARD]) r = await say(id, t);
+      return skipExtras(id, r);
+    };
+    const edit = (id, edits) => continueFormFilling(id, 'Edited the details', citizenUser, [], null, { edits });
+
+    test('the summary says what can be changed, and how', async () => {
+      const id = sid();
+      const r = await toSummary(id);
+      expect(r.type).toBe('confirm');
+      const byKey = Object.fromEntries(r.editable.map((e) => [e.key, e]));
+      expect(byKey.__title).toMatchObject({ type: 'text', max: 80, value: r.summary[0].value });
+      expect(byKey.__ward).toMatchObject({ type: 'choice', value: WARD });
+      expect(byKey.__ward.options).toContain(OTHER_WARD);
+      expect(byKey.severity).toMatchObject({ type: 'choice', value: 'Severe', options: ['Minor', 'Moderate', 'Severe', 'Critical'], optional: false });
+      expect(byKey.complaint_details.type).toBe('longtext');
+      expect(byKey.reporter_phone).toMatchObject({ type: 'phone', value: '', optional: true });
+    });
+
+    test('changes are checked like answers, applied, and filed exactly as shown', async () => {
+      const id = sid();
+      await toSummary(id);
+      let r = await edit(id, { severity: 'Moderate', __ward: OTHER_WARD, __place: 'opposite the bakery', __title: 'Deep pothole by our gate', reporter_phone: '98765 43210' });
+      expect(r.type).toBe('confirm');
+      expect(r.lead).toMatch(/^Updated: /);
+      expect(_sessions.get(id).draft).toMatchObject({ severity: 'Moderate', reporter_phone: '98765 43210' });
+      expect(r.summary[0]).toEqual({ label: 'What', value: 'Deep pothole by our gate' });
+      r = await say(id, 'yes');
+      expect(r.type).toBe('submitted');
+      const e = await prisma.entity.findUnique({ where: { entity_id: r.entity_id } });
+      expect(e).toMatchObject({ name: 'Deep pothole by our gate', area: OTHER_WARD, location: 'opposite the bakery' });
+    });
+
+    test('a value that does not pass is refused with the reason, and nothing else is lost', async () => {
+      const id = sid();
+      await toSummary(id);
+      const r = await edit(id, { severity: 'Apocalyptic', __ward: 'Atlantis', complaint_details: '', reporter_phone: 'call me', __title: 'ab' });
+      expect(r.type).toBe('confirm');
+      expect(r.lead).toMatch(/^I could not change everything:/);
+      expect(r.lead).toMatch(/Atlantis/);
+      expect(r.lead).toMatch(/title needs 3 to 80/);
+      const d = _sessions.get(id).draft;
+      expect(d.severity).toBe('Severe');
+      expect(d.complaint_details).toMatch(/pothole outside my building/i);
+      expect(d.reporter_phone).toBeUndefined();
+      expect(_sessions.get(id).ward.name).toBe(WARD);
+    });
+
+    test('nothing can be edited before there is a summary', async () => {
+      const id = sid();
+      await say(id, "There's a pothole outside my building");
+      const r = await edit(id, { severity: 'Minor' });
+      expect(r.type).toBe('guidance');
+      expect(_sessions.get(id).draft.severity).toBeUndefined();
+    });
+
+    test('the chat route accepts edits, and refuses malformed ones', async () => {
+      const id = sid();
+      const post = (body) => request(app).post('/agent/chat').set(citizen.headers).send({ sessionId: id, ...body });
+      let res;
+      for (const t of ["There's a pothole outside my building", 'infrastructure', 'severe', WARD]) res = await post({ message: t });
+      while (res.body.data.type === 'question' && isOptionalAsk(id)) res = await post({ message: 'skip' });
+      expect(res.body.data.type).toBe('confirm');
+      res = await post({ message: '', edits: { severity: 'Minor' } });
+      expect(res.status).toBe(200);
+      expect(res.body.data.type).toBe('confirm');
+      expect(_sessions.get(id).draft.severity).toBe('Minor');
+      expect((await post({ message: 'x', edits: ['not', 'an', 'object'] })).status).toBe(400);
+      expect((await post({ message: 'x', edits: { a: { nested: true } } })).status).toBe(400);
+    });
+  });
+
   // ── Bugs seen in the home card (19 Nov) ──────────────────────────────────
   describe('one acknowledgement, and chip values are never words', () => {
     test('AI wording gets the bare question, so the reply never apologises or thanks twice', async () => {

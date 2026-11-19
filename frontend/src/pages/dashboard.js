@@ -3,6 +3,7 @@ import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { entities as apiEntities, forms as apiForms, agent as agentApi, admin as apiAdmin } from '../api.js';
 import { getCurrentLanguage } from '../components/languageSelector.js';
 import { shrinkPhoto, SERVER_LIMIT_BYTES } from '../utils/photo.js';
+import { renderSummaryEditor, collectEdits } from '../components/summaryEditor.js';
 import { getStoredLocation, requestLocation, storeLocation, isLocationDismissed, dismissLocation, formatLocationForAgent } from '../utils/locationService.js';
 import { toastError } from '../components/toast.js';
 import { navigate } from '../router.js';
@@ -773,7 +774,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
     `;
   }
 
-  function renderConfirmCard(summaryRows, confirmText) {
+  function renderConfirmCard(summaryRows, confirmText, editable = []) {
     const rows = Array.isArray(summaryRows) ? summaryRows.map(r => `
       <div class="ck-dark-confirm-row">
         <span class="ck-dark-confirm-label">${escapeHtml(r.label)}</span>
@@ -794,10 +795,18 @@ function _attachCitizenCockpitEvents(user, myItems) {
             ${escapeHtml((confirmText || '').split('\n\n')[0] || 'Please review your request summary before submitting.')}
           </p>
           <div class="ck-dark-confirm-table">${rows}</div>
+          <div class="ck-dark-confirm-editor" hidden>
+            ${editable && editable.length ? renderSummaryEditor(editable) : ''}
+            <div class="ck-dark-confirm-actions">
+              <button type="button" class="ck-dark-btn-primary ck-dark-edit-save">Save changes</button>
+              <button type="button" class="ck-dark-btn-secondary ck-dark-edit-cancel">Cancel</button>
+            </div>
+          </div>
           <div class="ck-dark-confirm-actions" id="ck-dark-confirm-actions">
             <button type="button" id="ck-dark-confirm-submit-btn" class="ck-dark-btn-primary">
               Send it
             </button>
+            ${editable && editable.length ? '<button type="button" id="ck-dark-confirm-edit-btn" class="ck-dark-btn-secondary">Edit details</button>' : ''}
             <button type="button" id="ck-dark-confirm-cancel-btn" class="ck-dark-btn-secondary">
               Cancel
             </button>
@@ -856,7 +865,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
     sendCockpitMessage(reply);
   });
 
-  async function sendCockpitMessage(textToSend, explicitFile = null) {
+  async function sendCockpitMessage(textToSend, explicitFile = null, edits = null) {
     const file = explicitFile || pendingFile;
     const cleanText = (textToSend || '').trim();
 
@@ -893,14 +902,35 @@ function _attachCitizenCockpitEvents(user, myItems) {
     try {
       const _loc = getStoredLocation();
       const _locPrefix = formatLocationForAgent(_loc);
-      const res = await agentApi.chat(sessionId, _locPrefix + cleanText, file, getCurrentLanguage());
+      const res = await agentApi.chat(sessionId, _locPrefix + cleanText, file, getCurrentLanguage(), edits);
       document.getElementById('ck-dark-thinking')?.remove();
 
       const data = res.data;
 
       if (data.type === 'confirm') {
-        appendThreadHtml(inReplyLanguage(data, renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:')));
+        appendThreadHtml(inReplyLanguage(data, renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:', data.editable || [])));
         setTimeout(() => {
+          // Edit the details right on the card; the server checks them again.
+          const card = [...document.querySelectorAll('.ck-dark-confirm-card')].at(-1);
+          const editorBox = card?.querySelector('.ck-dark-confirm-editor');
+          const table = card?.querySelector('.ck-dark-confirm-table');
+          const actions = document.getElementById('ck-dark-confirm-actions');
+          const showEditor = (on) => {
+            if (!editorBox || !table || !actions) return;
+            editorBox.hidden = !on;
+            table.hidden = on;
+            actions.hidden = on;
+            if (on) editorBox.querySelector('.se-input')?.focus();
+          };
+          document.getElementById('ck-dark-confirm-edit-btn')?.addEventListener('click', () => showEditor(true));
+          editorBox?.querySelector('.ck-dark-edit-cancel')?.addEventListener('click', () => showEditor(false));
+          editorBox?.querySelector('.ck-dark-edit-save')?.addEventListener('click', () => {
+            const { edits, changes } = collectEdits(editorBox);
+            if (!changes.length) { showEditor(false); return; }
+            editorBox.remove();
+            actions?.remove();
+            sendCockpitMessage(`Changed: ${changes.join('; ')}`, null, edits);
+          });
           document.getElementById('ck-dark-confirm-submit-btn')?.addEventListener('click', () => {
             document.getElementById('ck-dark-confirm-actions')?.remove();
             sendCockpitMessage('yes');

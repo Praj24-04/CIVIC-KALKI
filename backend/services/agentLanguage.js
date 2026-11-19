@@ -146,11 +146,13 @@ async function localizeReply(reply, lang) {
   if (!reply || !isSupported(lang) || lang === 'en' || !aiClient.isConfigured()) return reply;
   const options = Array.isArray(reply.options) ? reply.options : [];
   const summary = Array.isArray(reply.summary) ? reply.summary : [];
+  const editable = Array.isArray(reply.editable) ? reply.editable : [];
   const strings = [
     reply.text || '',
     reply.lead || '',
     ...options.map((o) => String(o.label || '')),
     ...summary.map((r) => String(r.label || '')),
+    ...editable.map((e) => String(e.label || '')),
   ];
   const t = await translateAll(strings, lang);
   if (!t[0]) return reply; // the main text did not translate: keep the whole reply in English
@@ -165,6 +167,11 @@ async function localizeReply(reply, lang) {
   if (summary.length) {
     const start = 2 + options.length;
     localized.summary = summary.map((r, k) => ({ ...r, label: t[start + k] || r.label }));
+  }
+  // Edit labels change; keys, values and choices stay as the form has them.
+  if (editable.length) {
+    const start = 2 + options.length + summary.length;
+    localized.editable = editable.map((e, k) => ({ ...e, label: t[start + k] || e.label }));
   }
   return localized;
 }

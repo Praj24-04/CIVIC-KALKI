@@ -21,6 +21,7 @@ import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { agent as agentApi } from '../api.js';
 import { getCurrentLanguage } from '../components/languageSelector.js';
 import { shrinkPhoto, SERVER_LIMIT_BYTES } from '../utils/photo.js';
+import { renderSummaryEditor, collectEdits } from '../components/summaryEditor.js';
 import { getStoredLocation, requestLocation, storeLocation, isLocationDismissed, dismissLocation, formatLocationForAgent } from '../utils/locationService.js';
 import { navigate } from '../router.js';
 
@@ -116,7 +117,7 @@ function renderQuickReplies(options) {
     </div>`;
 }
 
-function renderConfirmCard(summaryRows, confirmText) {
+function renderConfirmCard(summaryRows, confirmText, editable = []) {
   const rows = Array.isArray(summaryRows)
     ? summaryRows.map(r => `
         <div class="agent-confirm-row ${r.isFile ? 'agent-confirm-file-row' : ''}">
@@ -146,11 +147,19 @@ function renderConfirmCard(summaryRows, confirmText) {
         </div>
         ${intro}
         <div class="agent-confirm-table">${rows}</div>
+        <div class="agent-confirm-editor" hidden>
+          ${editable && editable.length ? renderSummaryEditor(editable) : ''}
+          <div class="agent-confirm-actions">
+            <button type="button" class="btn btn-primary agent-edit-save">Save changes</button>
+            <button type="button" class="btn btn-ghost agent-edit-cancel">Cancel</button>
+          </div>
+        </div>
         <div class="agent-confirm-note">Nothing is sent until you say so.</div>
         <div class="agent-confirm-actions" id="agent-confirm-btns">
           <button id="agent-submit-btn" class="btn btn-primary" style="min-width:120px;">
             Send it
           </button>
+          ${editable && editable.length ? '<button id="agent-edit-btn" class="btn btn-secondary" type="button">Edit details</button>' : ''}
           <button id="agent-change-btn" class="btn btn-secondary" type="button">Change something</button>
           <button id="agent-cancel-btn" class="btn btn-ghost" type="button">Cancel</button>
         </div>
@@ -319,7 +328,7 @@ function updateAttachmentPreview() {
 
 // ── Core: send a message turn ─────────────────────────────────────────────────
 
-async function sendMessage(message, explicitFile = null) {
+async function sendMessage(message, explicitFile = null, edits = null) {
   const fileToUpload = explicitFile || pendingFile;
   const cleanMsg = (message || '').trim();
 
@@ -360,7 +369,7 @@ async function sendMessage(message, explicitFile = null) {
   try {
     const _agentLoc = getStoredLocation();
     const _locPfx = formatLocationForAgent(_agentLoc);
-    const res = await agentApi.chat(sessionId, _locPfx + cleanMsg, fileToUpload, getCurrentLanguage());
+    const res = await agentApi.chat(sessionId, _locPfx + cleanMsg, fileToUpload, getCurrentLanguage(), edits);
     removeThinking();
 
     const data = res.data;
@@ -370,12 +379,33 @@ async function sendMessage(message, explicitFile = null) {
 
     if (data.type === 'confirm') {
       pendingConfirmData = data;
-      appendHtml(inReplyLanguage(data, renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:')));
+      appendHtml(inReplyLanguage(data, renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:', data.editable || [])));
 
       // Wire confirm/cancel buttons
       setTimeout(() => {
         const submitBtn = document.getElementById('agent-submit-btn');
         const cancelBtn = document.getElementById('agent-cancel-btn');
+        // Edit the details right on the card; the server checks them again.
+        const card = [...document.querySelectorAll('.agent-confirm-card')].at(-1);
+        const editorBox = card?.querySelector('.agent-confirm-editor');
+        const table = card?.querySelector('.agent-confirm-table');
+        const actions = document.getElementById('agent-confirm-btns');
+        const showEditor = (on) => {
+          if (!editorBox || !table || !actions) return;
+          editorBox.hidden = !on;
+          table.hidden = on;
+          actions.hidden = on;
+          if (on) editorBox.querySelector('.se-input')?.focus();
+        };
+        document.getElementById('agent-edit-btn')?.addEventListener('click', () => showEditor(true));
+        editorBox?.querySelector('.agent-edit-cancel')?.addEventListener('click', () => showEditor(false));
+        editorBox?.querySelector('.agent-edit-save')?.addEventListener('click', () => {
+          const { edits, changes } = collectEdits(editorBox);
+          if (!changes.length) { showEditor(false); return; }
+          editorBox.remove();
+          actions?.remove();
+          sendMessage(`Changed: ${changes.join('; ')}`, null, edits);
+        });
         document.getElementById('agent-change-btn')?.addEventListener('click', () => {
           document.getElementById('agent-confirm-btns')?.remove();
           sendMessage('no');
