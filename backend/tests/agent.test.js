@@ -394,6 +394,129 @@ describe('Civic assistant', () => {
   });
 
   // ── With the AI understanding the words ────────────────────────────────────
+  // ── Area question, title and speed (19 Nov) ───────────────────────────────
+  describe('area question, title and speed', () => {
+    const { _loadWards, _ruleSubject } = require('../services/agentFormFiller');
+    const { acceptableTitle } = require('../services/agentVoice');
+    const toWard = async (id, first) => {
+      let r = await say(id, first);
+      for (const t of ['infrastructure', 'severe']) if (r.type === 'question' && _sessions.get(id).asked !== '__ward') r = await say(id, t);
+      return r;
+    };
+
+    test('without the phone\'s location, the area is asked openly, with no list of names', async () => {
+      const id = sid();
+      const r = await toWard(id, "There's a pothole outside my building");
+      expect(_sessions.get(id).asked).toBe('__ward');
+      expect(r.text).toMatch(/^(Thanks\. )?Which area or neighbourhood is this in\?$/);
+      expect(r.options).toBeUndefined();
+      expect(r.text).not.toContain(WARD);
+      // Only an answer that matches no area brings up the areas this city covers.
+      const miss = await say(id, 'Atlantis');
+      expect(miss.text).toMatch(/I do not know that area yet/);
+    });
+
+    test('with the phone\'s location, the area it is in is offered; "somewhere else" asks openly and is remembered', async () => {
+      const id = sid();
+      const tag = `[User location: ${WARD}, Some City (18.5000°N, 73.8000°E)] `;
+      let r = await say(id, `${tag}There's a pothole outside my building`);
+      for (const t of ['infrastructure', 'severe']) if (_sessions.get(id).asked !== '__ward') r = await say(id, tag + t);
+      expect(r.text).toMatch(new RegExp(`You seem to be in ${WARD}`));
+      expect(r.options.map((o) => o.value)).toEqual([WARD, 'somewhere else']);
+      r = await say(id, `${tag}somewhere else`);
+      expect(r.text).toMatch(/Which area or neighbourhood is this in\?/);
+      expect(r.options).toBeUndefined();
+      r = await say(id, `${tag}${OTHER_WARD}`);
+      expect(_sessions.get(id).ward.name).toBe(OTHER_WARD);
+    });
+
+    test('a country or state with nothing under it is never offered as an area', async () => {
+      const lone = await prisma.jurisdictionMaster.create({ data: { name: `Lonecountry${Date.now()}`, type: 'country', status: 'active' } });
+      try {
+        const names = (await _loadWards()).map((w) => w.name);
+        expect(names).not.toContain(lone.name);
+        expect(names).toContain(WARD); // a top-level ward still counts
+      } finally {
+        await prisma.jurisdictionMaster.delete({ where: { jurisdiction_id: lone.jurisdiction_id } });
+      }
+    });
+
+    test('the title names the problem, not "I want to lodge a complaint…"', () => {
+      expect(_ruleSubject('I want to lodge a complaint regarding food issue')).toBe('food issue');
+      expect(_ruleSubject('Hello sir, I would like to report that the streetlight near my house is broken')).toBe('streetlight near my house is broken');
+      expect(_ruleSubject('I have a complaint about the garbage not collected for a week')).toBe('garbage not collected for a week');
+      expect(_ruleSubject('The drain on our road is blocked')).toBe('The drain on our road is blocked');
+    });
+
+    test('the filed record carries the generated title and the area', async () => {
+      const id = sid();
+      let r = await toWard(id, 'I want to lodge a complaint regarding the pothole outside my building gate');
+      r = await skipExtras(id, await say(id, WARD));
+      expect(r.type).toBe('confirm');
+      expect(r.summary[0]).toEqual({ label: 'What', value: `Pothole outside my building gate in ${WARD}` });
+      r = await say(id, 'yes');
+      const e = await prisma.entity.findUnique({ where: { entity_id: r.entity_id } });
+      expect(e.name).toBe(`Pothole outside my building gate in ${WARD}`);
+    });
+
+    describe('with AI', () => {
+      const kinds = [];
+      let title = 'Pothole near the building gate';
+      beforeEach(() => {
+        process.env.GEMINI_API_KEY = 'test-key';
+        kinds.length = 0;
+        title = 'Pothole near the building gate';
+        mockGenerate.mockImplementation(async (payload) => {
+          const p = Array.isArray(payload) ? payload[0] : String(payload);
+          const kind = p.includes('Decide what they want') ? 'choose' : p.includes('extract facts') ? 'read' : p.includes('voice of a city') ? 'voice' : p.includes('short title') ? 'title' : 'other';
+          kinds.push(kind);
+          if (kind === 'choose') return reply({ intent: 'file', service_id: grievance.entity_type_id, candidate_ids: [] });
+          if (kind === 'read') return reply({ intent: 'answer', values: {}, area: null, place: null });
+          if (kind === 'title') return reply({ title });
+          return reply({ text: 'not a usable wording' });
+        });
+      });
+
+      test('a tapped choice, "skip" or an area name is answered without any AI call', async () => {
+        const id = sid();
+        let r = await say(id, 'I want to lodge a complaint regarding the pothole outside my building gate');
+        expect(kinds).toEqual(expect.arrayContaining(['choose', 'read']));
+        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo']) {
+          if (r.type === 'confirm') break;
+          kinds.length = 0;
+          r = await say(id, t);
+          expect(kinds).toEqual([]);
+        }
+        expect(r.type).toBe('confirm');
+      });
+
+      test('an AI title is used, labelled, and is exactly what gets filed', async () => {
+        const id = sid();
+        let r = await say(id, 'I want to lodge a complaint regarding the pothole outside my building gate');
+        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo']) if (r.type !== 'confirm') r = await say(id, t);
+        expect(r.type).toBe('confirm');
+        expect(r.summary[0]).toEqual({ label: 'What (title worded by AI)', value: `Pothole near the building gate in ${WARD}` });
+        r = await say(id, 'yes');
+        const e = await prisma.entity.findUnique({ where: { entity_id: r.entity_id } });
+        expect(e.name).toBe(`Pothole near the building gate in ${WARD}`);
+      });
+
+      test('an AI title that talks about complaining, names a person or makes a claim is thrown away', async () => {
+        title = 'Complaint regarding pothole';
+        const id = sid();
+        let r = await say(id, 'I want to lodge a complaint regarding the pothole outside my building gate');
+        for (const t of ['Infrastructure', 'Severe', WARD, 'skip', 'no photo']) if (r.type !== 'confirm') r = await say(id, t);
+        expect(r.summary[0]).toEqual({ label: 'What', value: `Pothole outside my building gate in ${WARD}` });
+
+        expect(acceptableTitle('Overflowing garbage bins on main road')).toBe(true);
+        expect(acceptableTitle('Pothole reported by Asha Patil', { personNames: ['Asha Patil'] })).toBe(false);
+        expect(acceptableTitle('Dangerous pothole', { citizenSaid: 'a pothole' })).toBe(false);
+        expect(acceptableTitle('Pothole to be fixed within 2 days')).toBe(false);
+        expect(acceptableTitle('I want to report a pothole')).toBe(false);
+      });
+    });
+  });
+
   describe('with AI', () => {
     beforeEach(() => { process.env.GEMINI_API_KEY = 'test-key'; });
 

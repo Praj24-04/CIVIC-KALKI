@@ -88,8 +88,11 @@ describe('6 — a token for a deleted user', () => {
 describe('7 — checkRole matches whole role names', () => {
   test('a role that is a substring of "admin" cannot create, edit or delete jurisdictions', async () => {
     const { headers } = await createTestUser({ role: 'dmi' });
+    const name = `AG ${Date.now()}`;
     const create = await request(app).post('/jurisdictions').set(CSRF).set(headers)
-      .send({ name: `AG ${Date.now()}`, type: 'country' });
+      .send({ name, type: 'country' });
+    // Should the check ever regress, do not leave the area behind: the assistant would offer it.
+    await prisma.jurisdictionMaster.deleteMany({ where: { name } });
     expect(create.status).toBe(403);
     expect((await request(app).put('/jurisdictions/1').set(CSRF).set(headers).send({ name: 'x' })).status).toBe(403);
     expect((await request(app).delete('/jurisdictions/1').set(CSRF).set(headers)).status).toBe(403);

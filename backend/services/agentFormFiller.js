@@ -25,6 +25,7 @@ const fs = require('fs');
 const prisma = require('../db');
 const understanding = require('./agentIntentRouter');
 const voice = require('./agentVoice');
+const aiClient = require('./aiClient');
 const { validateWorkflowTransition, executeWorkflowTransition } = require('./workflowEngine');
 const { firstWorkflowStatus } = require('./ruleEngine');
 
@@ -204,12 +205,17 @@ function describeService(svc) {
 async function loadWards() {
   const all = await prisma.jurisdictionMaster.findMany({
     where: { status: 'active' },
-    select: { jurisdiction_id: true, name: true, parent_id: true },
+    select: { jurisdiction_id: true, name: true, parent_id: true, type: true },
     take: 5000,
   });
   const parents = new Set(all.map((j) => j.parent_id).filter(Boolean));
-  return all.filter((j) => !parents.has(j.jurisdiction_id)).map((j) => ({ id: j.jurisdiction_id, name: j.name }));
+  return all
+    .filter((j) => !parents.has(j.jurisdiction_id))
+    // A country or state with nothing under it is not a place a record can sit.
+    .filter((j) => j.parent_id || !TOP_LEVEL_TYPES.has(String(j.type || '').toLowerCase()))
+    .map((j) => ({ id: j.jurisdiction_id, name: j.name }));
 }
+const TOP_LEVEL_TYPES = new Set(['country', 'state']);
 
 // ── Validation (the only way a value gets into the draft) ────────────────────
 
@@ -316,12 +322,23 @@ function questionFor(field) {
   return `What is the ${field.plain}?`;
 }
 
-function wardQuestion(wards) {
-  if (!wards.length) return 'Which area is this in?';
-  return wards.length <= 8
-    ? `Which area is this in: ${listOf(wards.map((w) => w.name))}?`
-    : 'Which area or ward is this in?';
+/**
+ * Ask for the area without reading out this city's list of names. If the phone
+ * shared where the resident is, offer that area; the list of areas is shown only
+ * after an answer that matches none of them.
+ */
+function wardQuestion(session) {
+  if (session.nearWard) {
+    return {
+      text: `Which area is this in? You seem to be in ${session.nearWard.name} right now. Is it there, or somewhere else?`,
+      options: [{ label: session.nearWard.name, value: session.nearWard.name }, { label: 'Somewhere else', value: 'somewhere else' }],
+      mustInclude: [session.nearWard.name],
+    };
+  }
+  return { text: 'Which area or neighbourhood is this in?', options: undefined, mustInclude: [] };
 }
+
+const SOMEWHERE_ELSE = /^(somewhere else|some where else|elsewhere|another (area|place|one)|a different (area|place)|different (area|place)|other (area|place)|not (there|here)|no)$/;
 
 function placeQuestion(session) {
   return `Where exactly is it${session.ward ? ` in ${session.ward.name}` : ''}? A landmark or street name helps the team find the spot.`;
@@ -347,17 +364,69 @@ const STATUS_WORDS = {
 const plainStatus = (s) => STATUS_WORDS[String(s || '').toLowerCase()] || String(s || 'in progress').replace(/_/g, ' ');
 const reference = (id) => `PR-${String(id).padStart(5, '0')}`;
 
-function titleFrom(session) {
+// Openings that say "I am complaining", not what the problem is. Stripped
+// repeatedly, in any order, from the start of what the resident said.
+const TITLE_PREAMBLES = [
+  /^(?:hi|hello|hey|namaste|good (?:morning|afternoon|evening)|dear sir|respected sir|sir|madam|ma'?am)\b[,!.]?\s*/i,
+  /^(?:please|kindly|actually|so|ok|okay)\b[,]?\s*/i,
+  /^(?:i|we)\s+(?:want|would like|wish|need|am writing|have come|am here)\s+to\s+(?:lodge|file|register|raise|make|submit|report|log|give|put|complain)\b\s*/i,
+  /^(?:i'?d|we'?d)\s+like\s+to\s+(?:lodge|file|register|raise|make|submit|report|log|complain)\b\s*/i,
+  /^(?:i|we)\s+(?:have|got)\s+(?:a|an|one|some)?\s*(?=(?:complaint|grievance|issue|problem|report|request)\b)/i,
+  /^(?:i|we)\s+(?:want to|would like to)?\s*report\b\s*/i,
+  /^(?:a|an|my|our|one|this)\s+(?=(?:complaint|grievance|issue|problem|report|request)\b)/i,
+  /^(?:complaint|grievance|report|request)s?\b\s*/i,
+  /^(?:issue|problem)s?\s+(?=(?:regarding|about|on|for|of|with|related|concerning)\b)/i,
+  /^(?:regarding|about|on|for|of|against|related to|concerning|with)\s+/i,
+  /^(?:there'?s|there is|there are|there has been)\s+/i,
+  /^that\s+/i,
+];
+// Only once an opening was removed: "a complaint about the drain" -> "drain…",
+// but "The drain on our road is blocked" keeps its own first word.
+const LEADING_ARTICLE = /^(?:an?|the|some)\s+/i;
+
+/** The subject of the request, in the resident's words, without the openings. */
+function ruleSubject(source) {
+  const original = String(source || '').replace(/\[.*?\]/g, '').split(/[.!?\n]/)[0].trim();
+  let t = original;
+  for (let pass = 0; pass < 8; pass += 1) {
+    const before = t;
+    for (const re of TITLE_PREAMBLES) t = t.replace(re, '').trim();
+    if (t === before) break;
+  }
+  if (t !== original) t = t.replace(LEADING_ARTICLE, '').trim();
+  return t;
+}
+
+/** What the title is made from: the description field, or the first thing they said. */
+function titleSource(session) {
   const long = session.service.fields.find((f) => f.type === 'longtext' && session.draft[f.key]);
-  const source = (long ? session.draft[long.key] : session.said[0]) || session.service.label;
-  let t = String(source).replace(/\[.*?\]/g, '').split(/[.!?\n]/)[0].trim();
-  t = t.replace(/^(hi|hello|hey)[,!. ]+/i, '').replace(/^(there'?s|there is|there are|i have|i want to report|i'd like to report)\s+(an?\s+|the\s+|some\s+)?/i, '');
-  t = t.charAt(0).toUpperCase() + t.slice(1);
-  return t.length > 80 ? `${t.slice(0, 77).trim()}…` : t || session.service.label;
+  return String((long ? session.draft[long.key] : session.said[0]) || '');
+}
+
+/**
+ * The record's title: what the problem is, and where. An AI-suggested subject
+ * (checked in agentVoice.acceptableTitle) is used when there is one for the
+ * current description; otherwise the resident's words without the openings.
+ */
+function titleFrom(session) {
+  const source = titleSource(session);
+  const ai = session.aiTitle && session.aiTitleFor === source ? session.aiTitle : null;
+  let subject = ai || ruleSubject(source);
+  if (subject.length < 3) subject = session.service.label;
+  subject = subject.charAt(0).toUpperCase() + subject.slice(1);
+  const ward = session.ward && session.ward.name;
+  const suffix = ward && !subject.toLowerCase().includes(ward.toLowerCase()) ? ` in ${ward}` : '';
+  const room = 80 - suffix.length;
+  if (subject.length > room) subject = `${subject.slice(0, room - 1).trim()}…`;
+  return subject + suffix;
+}
+
+function titleIsAi(session) {
+  return Boolean(session.aiTitle && session.aiTitleFor === titleSource(session));
 }
 
 function summaryOf(session) {
-  const rows = [{ label: 'What', value: titleFrom(session) }];
+  const rows = [{ label: titleIsAi(session) ? 'What (title worded by AI)' : 'What', value: titleFrom(session) }];
   rows.push({ label: 'Where', value: [session.ward?.name, session.place].filter(Boolean).join(', ') });
   if (session.coords) rows.push({ label: 'Map pin', value: 'Your shared location' });
   for (const f of session.service.fields) {
@@ -371,6 +440,8 @@ function summaryOf(session) {
 
 function confirmReply(session, lead = 'Here is what I will send:') {
   const summary = summaryOf(session);
+  // The record is filed under exactly the title the citizen is shown here.
+  session.confirmedTitle = summary[0].value;
   session.phase = 'confirming';
   session.asked = null;
   const lines = summary.map((r) => `**${r.label}:** ${r.value}`).join('\n');
@@ -440,7 +511,7 @@ async function fileRequest(session, user, sessionId) {
         entity_type_id: svc.id,
         owner_user_id: user.user_id,
         jurisdiction_id: ward.jurisdiction_id,
-        name: titleFrom(session),
+        name: session.confirmedTitle || titleFrom(session),
         area: ward.name,
         location: session.place || null,
         latitude: session.coords?.latitude ?? null,
@@ -562,9 +633,8 @@ function nextStep(session, wards, lead = '') {
     return ask(f.key, questionFor(f), quickReplies(f.options), words, f.options);
   }
   if (gaps.ward) {
-    const names = wards.map((w) => w.name);
-    if (names.length > 8) return ask('__ward', wardQuestion(wards), quickReplies(names), []);
-    return ask('__ward', wardQuestion(wards), quickReplies(names), ['area', 'ward', ...names], names);
+    const q = wardQuestion(session);
+    return ask('__ward', q.text, q.options, ['area', 'ward', 'neighbourhood', 'neighborhood', 'where'], q.mustInclude);
   }
   if (gaps.place) {
     session.askedPlace = true;
@@ -629,23 +699,64 @@ function progressOf(session) {
   };
 }
 
+/**
+ * Ask the AI for a title in the background as soon as the description is known,
+ * so it is usually ready by the summary and never adds a wait to a question.
+ */
+function ensureTitle(session, user) {
+  if (!session || !session.service || !aiClient.isConfigured() || !useAi(session)) return;
+  const source = titleSource(session);
+  if (!source.trim() || session.titleRequestedFor === source) return;
+  session.titleRequestedFor = source;
+  const facts = summaryOf(session).filter((r) => !/^(What|Your name|Map pin|Attached)/.test(r.label));
+  session.titlePromise = voice.suggestTitle({ citizenSaid: source, facts, personNames: [user && user.name] })
+    .then((title) => {
+      if (title && titleSource(session) === source) { session.aiTitle = title; session.aiTitleFor = source; }
+    })
+    .catch(() => {});
+}
+
+// How long the summary may wait for a title still being written (env AI_TITLE_WAIT_MS).
+function titleWaitMs() {
+  const n = Number(process.env.AI_TITLE_WAIT_MS);
+  return Number.isFinite(n) && n >= 0 ? n : 2500;
+}
+
 async function continueFormFilling(sessionId, userMessage, user, _unused = [], attachedFile = null) {
-  const reply = await conversationTurn(sessionId, userMessage, user, attachedFile);
+  let reply = await conversationTurn(sessionId, userMessage, user, attachedFile);
   const ask = reply && reply._ask;
   if (reply) delete reply._ask;
   const session = sessions.get(sessionId);
-  if (reply && ['question', 'confirm'].includes(reply.type)) {
-    const progress = progressOf(session);
-    if (progress) reply.progress = progress;
-  }
-  if (!reply || reply.type !== 'question') return reply;
+  if (!reply || !['question', 'confirm'].includes(reply.type)) return reply;
 
-  // The question is fixed; only its wording may be made more human (AI, checked).
-  if (!ask || !session || !session.service || reply.invalid || !ask.subjectWords.length) return { ...reply, voice: 'rules' };
+  if (reply.type === 'confirm') {
+    if (session && session.service) {
+      ensureTitle(session, user);
+      if (session.titlePromise) {
+        await voice.withinBudget(session.titlePromise, titleWaitMs());
+        if (titleIsAi(session)) reply = { ...reply, ...confirmReply(session, reply.lead || undefined) };
+      }
+    }
+    const progress = progressOf(session);
+    return progress ? { ...reply, progress } : reply;
+  }
+
+  // A question. Its wording may be made more human (AI, checked); the question
+  // itself is fixed. The wording request goes first, since the citizen waits on
+  // it; the title is written alongside it.
+  const progress = progressOf(session);
+  if (progress) reply.progress = progress;
   const said = String(userMessage || '').replace(/\[(?:User )?location:[^\]]*\]/gi, '').trim();
-  const worded = await voice.speak({
+  // A short answer (a tapped choice, "skip", an area name) gets the next
+  // question straight away; rewording is kept for replies in the resident's own words.
+  const short = /^__/.test(said) || said.split(/\s+/).filter(Boolean).length <= 3;
+  if (!ask || !session || !session.service || reply.invalid || !ask.subjectWords.length || short) {
+    ensureTitle(session, user);
+    return { ...reply, voice: 'rules' };
+  }
+  const wording = voice.speak({
     reply,
-    citizenSaid: /^__/.test(said) ? '' : said,
+    citizenSaid: said,
     serviceLabel: session.service.label,
     known: summaryOf(session).filter((r) => r.label !== 'Your name'),
     subjectWords: ask.subjectWords,
@@ -653,6 +764,8 @@ async function continueFormFilling(sessionId, userMessage, user, _unused = [], a
     firstName: String(user.name || '').split(/\s+/)[0] || null,
     useAi: useAi(session),
   });
+  ensureTitle(session, user);
+  const worded = await wording;
   noteAi(session, worded);
   return { ...reply, text: worded.text, voice: worded.voice };
 }
@@ -670,6 +783,8 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   const onlyAttachment = Boolean(attachedFile) && /^i have uploaded an attachment/i.test(message);
 
   const [catalog, wards] = await Promise.all([loadServiceCatalog(user.role), loadWards()]);
+  // The phone's position names an area we cover: offer it when asking where.
+  if (device && device.text && !session.declinedNearWard) session.nearWard = understanding.findWard(device.text, wards) || session.nearWard || null;
   if (!catalog.length) {
     return { type: 'guidance', text: 'There is nothing you can file from here with your account. You can still browse records from the menu.' };
   }
@@ -768,6 +883,13 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   if (onlyAttachment) return nextStep(session, wards, attachedNote);
 
   const asked = session.asked;
+
+  // "Somewhere else" to the suggested area: ask openly, without a list of names.
+  if (asked === '__ward' && SOMEWHERE_ELSE.test(understanding.normalize(message))) {
+    session.nearWard = null;
+    session.declinedNearWard = true;
+    return nextStep(session, wards, 'Okay.');
+  }
 
   // ── Answers to "where exactly?" and "any photo?" ──────────────────────────
   if (asked === '__place' || asked === '__photo') {
@@ -890,5 +1012,7 @@ module.exports = {
   _sessions: sessions,
   _loadServiceCatalog: loadServiceCatalog,
   _validateValue: validateValue,
+  _loadWards: loadWards,
+  _ruleSubject: ruleSubject,
   _describeService: describeService,
 };

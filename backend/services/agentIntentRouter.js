@@ -245,6 +245,12 @@ async function readDetails({ message, fields, wards, askedKey = null, history = 
     aiUnavailable: false,
   };
   if (!useAi || ['confirm', 'deny'].includes(intent)) return rules;
+  // The message is exactly one of the choices just offered (a tapped chip, or the
+  // option typed out): the rules already have the whole answer, so do not make
+  // the citizen wait for a model round trip.
+  const bareMessage = normalize(message);
+  if (askedKey && rules.values[askedKey] && bareMessage === normalize(rules.values[askedKey])) return rules;
+  if (askedKey === '__ward' && rules.ward && bareMessage === normalize(rules.ward.name)) return rules;
 
   const prompt = `You read one message from a citizen who is talking to a city's civic assistant, and extract facts. You do not reply to the citizen.
 

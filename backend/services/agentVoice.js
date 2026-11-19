@@ -82,11 +82,86 @@ Write that next message:
 Return JSON only: {"text": "..."}`;
 
   const knownText = [citizenSaid, reply.text, facts].join('\n');
-  const { data, aiUnavailable } = await askJson(prompt, (d) => typeof d.text === 'string');
+  // Rewording is a nicety: if the model is slow, the engine's own sentence goes
+  // out instead of keeping the citizen waiting.
+  const result = await withinBudget(askJson(prompt, (d) => typeof d.text === 'string'), voiceBudgetMs());
+  if (!result) return fallback;
+  const { data, aiUnavailable } = result;
   if (!data) return { ...fallback, aiUnavailable };
   const text = String(data.text).trim();
   if (!acceptable(text, { subjectWords, knownText, mustInclude, citizenSaid })) return fallback;
   return { text, voice: 'ai', aiUnavailable: false };
 }
 
-module.exports = { speak, acceptable };
+/** How long a reply may wait for AI wording (env AI_VOICE_BUDGET_MS, default 2.5 s). */
+function voiceBudgetMs() {
+  const n = Number(process.env.AI_VOICE_BUDGET_MS);
+  return Number.isFinite(n) && n > 0 ? n : 2500;
+}
+
+/** Resolve with the promise's value, or with null once `ms` has passed. */
+function withinBudget(promise, ms) {
+  let timer;
+  const late = new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); });
+  return Promise.race([promise.catch(() => null), late]).finally(() => clearTimeout(timer));
+}
+
+// ── Titles ───────────────────────────────────────────────────────────────────
+
+/**
+ * Is this AI title safe to use as the record's name? A short noun phrase about
+ * the problem: no question, no markup, no system words, no promises, no claim
+ * the resident did not make, no number they did not give, and no personal name.
+ */
+function acceptableTitle(text, { knownText = '', citizenSaid = '', personNames = [] } = {}) {
+  if (typeof text !== 'string') return false;
+  const t = text.trim();
+  if (t.length < 3 || t.length > 70) return false;
+  if (t.split(/\s+/).length > 10) return false;
+  if (/[?!*_#`<>[\]{}\n]/.test(t)) return false;
+  if (SYSTEM_WORDS.test(t) || PROMISES.test(t)) return false;
+  // About the problem, not about the act of complaining.
+  if (/^(i|i'm|im|my|we|please|complaint|request|report(ing)?|regarding|about)\b/i.test(t)) return false;
+  const lower = t.toLowerCase();
+  const theySaid = String(citizenSaid || '').toLowerCase();
+  for (const w of lower.match(UNSAID) || []) {
+    if (!theySaid.includes(w)) return false;
+  }
+  for (const n of t.match(/\d+(?:[.,]\d+)*/g) || []) {
+    if (!String(knownText).includes(n)) return false;
+  }
+  for (const name of personNames) {
+    for (const part of String(name || '').toLowerCase().split(/\s+/)) {
+      if (part.length >= 3 && new RegExp(`\\b${part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(lower)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Suggest a short title for what the resident is reporting, from what they
+ * said. Returns null when the AI is off or its answer fails a check; the engine
+ * then uses its own rule-based title.
+ * @returns {Promise<string|null>}
+ */
+async function suggestTitle({ citizenSaid, facts = [], personNames = [] }) {
+  const factLines = facts.filter((r) => r && r.value).map((r) => `- ${r.label}: ${String(r.value).slice(0, 200)}`).join('\n');
+  const prompt = `A resident is reporting something to a city's civic help desk. Write a short title for their request, the way a careful clerk would label the file.
+
+WHAT THE RESIDENT SAID: "${String(citizenSaid || '').slice(0, 800)}"
+${factLines ? `DETAILS:\n${factLines}\n` : ''}
+Rules:
+- 3 to 8 words, a plain noun phrase naming the actual problem (for example "Overflowing garbage bins on main road", "Broken streetlight near bus stop").
+- Describe the problem itself, never the act of complaining: no "I want to", "complaint regarding", "request for".
+- Use only what the resident said. Do not add places, numbers, causes, people or how serious it is.
+- No personal names, no question, no punctuation at the end, no markdown.
+Return JSON only: {"title": "..."}`;
+  const knownText = [citizenSaid, factLines].join('\n');
+  const result = await askJson(prompt, (d) => typeof d.title === 'string');
+  if (!result || !result.data) return null;
+  const title = String(result.data.title).trim().replace(/[.\s]+$/, '');
+  if (!acceptableTitle(title, { knownText, citizenSaid, personNames })) return null;
+  return title.charAt(0).toUpperCase() + title.slice(1);
+}
+
+module.exports = { speak, acceptable, acceptableTitle, suggestTitle, withinBudget };
