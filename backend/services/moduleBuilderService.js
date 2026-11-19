@@ -12,6 +12,7 @@
  * the generic Entity, Form, Workflow, Rule, and Report engines.
  */
 
+const assistantSettings = require('./assistantSettings');
 const prisma = require('../db');
 
 function createHttpError(message, statusCode = 400) {
@@ -59,9 +60,17 @@ function validateModuleDefinition(payload) {
       if (p.field_type && !ALLOWED_FIELD_TYPES.includes(p.field_type)) {
         errors.push(`Invalid field_type "${p.field_type}" for field "${p.label}".`);
       }
+      // Civic assistant settings for this field (ask in chat, wording, role).
+      const { errors: chatErrors } = assistantSettings.sanitizeChat(p.chat, p.field_type || 'text', p.label || `field ${pIdx + 1}`);
+      errors.push(...chatErrors);
       allParams.push(p);
     });
   });
+
+  errors.push(...assistantSettings.roleErrors(allParams.map((p) => ({
+    label: p.label,
+    chat: assistantSettings.sanitizeChat(p.chat, p.field_type || 'text', p.label).chat,
+  }))));
 
   // 3. Workflow Validation
   const workflowData = payload.workflow || {};
@@ -230,9 +239,11 @@ async function deployModule(payload) {
         else if (p.field_type === 'date') controlType = 'datepicker';
         else if (p.field_type === 'select') controlType = 'dropdown';
 
-        const opts = (p.field_type === 'select' && p.options && p.options.length)
+        const choiceOpts = (p.field_type === 'select' && p.options && p.options.length)
           ? (typeof p.options === 'object' && !Array.isArray(p.options) ? p.options : { choices: p.options })
           : null;
+        const { chat } = assistantSettings.sanitizeChat(p.chat, p.field_type || 'text', p.label);
+        const opts = assistantSettings.withChat(choiceOpts, chat);
 
         const createdParam = await tx.parameterMaster.create({
           data: {
@@ -251,6 +262,9 @@ async function deployModule(payload) {
         createdParams.push(createdParam);
       }
     }
+
+    // C2. Civic assistant settings for the module (area, exact spot, photo).
+    if (payload.assistant) await assistantSettings.writeAsks(tx, entityType.entity_type_id, payload.assistant);
 
     // D. Create WorkflowMaster transitions
     const transitions = Array.isArray(workflowData.transitions) ? workflowData.transitions : [];

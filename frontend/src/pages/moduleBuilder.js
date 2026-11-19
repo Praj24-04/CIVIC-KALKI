@@ -39,11 +39,13 @@ let state = {
           },
           {
             id: 'param_2',
-            label: 'Area',
-            field_key: 'area',
-            field_type: 'select',
+            label: 'Description',
+            field_key: 'description',
+            field_type: 'textarea',
             mandatory: true,
-            options: ['Sector 5', 'Sector 12', 'Pune North', 'Pune South', 'Pune Central'],
+            options: [],
+            // The civic assistant puts the resident's own words here.
+            chat: { role: 'description' },
           },
         ],
       },
@@ -71,10 +73,53 @@ let state = {
     metricField: '',
     publicStats: true,
   },
+  // What the civic assistant asks for this module, besides the form's fields.
+  assistant: { ask_area: true, ask_spot: true, ask_photo: true },
   existingTypes: [],
   domains: [],
   isSubmitting: false,
 };
+
+// Field roles for the civic assistant, and the field types each fits
+// (the server checks the same: services/assistantSettings.js).
+const CHAT_ROLES = [
+  { value: '', label: 'None', types: null },
+  { value: 'description', label: 'The problem in their words', types: ['textarea', 'text'] },
+  { value: 'severity', label: 'How serious (the resident decides)', types: ['select'] },
+  { value: 'person_name', label: "The resident's name", types: ['text'] },
+  { value: 'contact_phone', label: 'Call-back number', types: ['phone', 'text'] },
+  { value: 'photo', label: 'Photo of the problem', types: ['file'] },
+];
+
+function renderChatSettings(param, sIdx, pIdx) {
+  const chat = param.chat || {};
+  const roles = CHAT_ROLES.filter((r) => !r.types || r.types.includes(param.field_type));
+  return `
+    <div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--gray-200);">
+      <div style="font-size:12px; font-weight:600; color:var(--gray-700); margin-bottom:6px;">Civic assistant</div>
+      <div class="form-row">
+        <div class="form-group" style="flex:1.4;">
+          <label class="form-label" style="font-size:12px;">This field is</label>
+          <select class="form-control" onchange="window.updateParamChat(${sIdx}, ${pIdx}, 'role', this.value)">
+            ${roles.map((r) => `<option value="${r.value}" ${String(chat.role || '') === r.value ? 'selected' : ''}>${escapeHtml(r.label)}</option>`).join('')}
+          </select>
+        </div>
+        ${param.mandatory ? '' : `
+        <div class="form-group" style="flex:1; display:flex; align-items:flex-end; padding-bottom:8px;">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" ${chat.ask ? 'checked' : ''} onchange="window.updateParamChat(${sIdx}, ${pIdx}, 'ask', this.checked)">
+            Ask in chat (can be skipped)
+          </label>
+        </div>`}
+      </div>
+      ${(param.mandatory || chat.ask) && param.field_type !== 'file' ? `
+      <div class="form-group">
+        <label class="form-label" style="font-size:12px;">How the assistant asks it (optional)</label>
+        <input type="text" class="form-control" maxlength="300" value="${escapeHtml(chat.question || '')}" onchange="window.updateParamChat(${sIdx}, ${pIdx}, 'question', this.value)" placeholder="e.g. Since when has this been happening?">
+      </div>` : ''}
+    </div>
+  `;
+}
 
 export async function renderModuleBuilder() {
   if (!requireRole(['admin', 'director'], navigate)) return;
@@ -225,6 +270,8 @@ function renderStep2() {
                 <option value="number" ${param.field_type === 'number' ? 'selected' : ''}>Number (Metric)</option>
                 <option value="date" ${param.field_type === 'date' ? 'selected' : ''}>Date</option>
                 <option value="select" ${param.field_type === 'select' ? 'selected' : ''}>Dropdown Select</option>
+                <option value="phone" ${param.field_type === 'phone' ? 'selected' : ''}>Phone Number</option>
+                <option value="file" ${param.field_type === 'file' ? 'selected' : ''}>Photo / File</option>
               </select>
             </div>
             <div class="form-group" style="flex:1; display:flex; align-items:flex-end; padding-bottom:8px;">
@@ -241,6 +288,7 @@ function renderStep2() {
               <input type="text" class="form-control" value="${escapeHtml((param.options || []).join(', '))}" onchange="window.updateParamOptions(${sIdx}, ${pIdx}, this.value)" placeholder="Choice 1, Choice 2, Choice 3">
             </div>
           ` : ''}
+          ${renderChatSettings(param, sIdx, pIdx)}
         </div>
       `;
     }).join('');
@@ -271,6 +319,14 @@ function renderStep2() {
             <div class="form-group">
               <label class="form-label">Form Title</label>
               <input type="text" id="form-name-input" class="form-control" value="${escapeHtml(formName)}" onchange="state.form.name = this.value">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Civic assistant also asks for</label>
+              <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:13px;">
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" ${state.assistant.ask_area ? 'checked' : ''} onchange="window.updateAssistant('ask_area', this.checked)"> The area (ward)</label>
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" ${state.assistant.ask_spot ? 'checked' : ''} onchange="window.updateAssistant('ask_spot', this.checked)"> The exact spot</label>
+                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" ${state.assistant.ask_photo ? 'checked' : ''} onchange="window.updateAssistant('ask_photo', this.checked)"> A photo (needs a field marked "Photo of the problem")</label>
+              </div>
             </div>
           </div>
         </div>
@@ -731,6 +787,31 @@ window.updateParam = (sIdx, pIdx, key, val) => {
   if (key === 'label') {
     param.field_key = val.toLowerCase().replace(/[^a-z0-9]/g, '_');
   }
+  if (key === 'field_type' && param.chat && param.chat.role) {
+    const role = CHAT_ROLES.find((r) => r.value === param.chat.role);
+    if (role && role.types && !role.types.includes(val)) delete param.chat.role;
+  }
+  renderWizard();
+};
+
+window.updateParamChat = (sIdx, pIdx, key, val) => {
+  const param = state.form.sections[sIdx].parameters[pIdx];
+  const chat = { ...(param.chat || {}) };
+  if (key === 'role') {
+    // Each role belongs to one field: taking it here frees it elsewhere.
+    if (val) state.form.sections.forEach((sec) => sec.parameters.forEach((p) => { if (p !== param && p.chat && p.chat.role === val) delete p.chat.role; }));
+    if (val) chat.role = val; else delete chat.role;
+  } else if (key === 'ask') {
+    chat.ask = Boolean(val);
+  } else if (key === 'question') {
+    if (String(val).trim()) chat.question = String(val).trim().slice(0, 300); else delete chat.question;
+  }
+  param.chat = chat;
+  renderWizard();
+};
+
+window.updateAssistant = (key, val) => {
+  state.assistant[key] = Boolean(val);
   renderWizard();
 };
 
@@ -821,9 +902,11 @@ window.submitModuleCreation = async () => {
             field_type: p.field_type,
             mandatory: Boolean(p.mandatory),
             options: p.options,
+            chat: p.chat && Object.keys(p.chat).length ? p.chat : undefined,
           })),
         })),
       },
+      assistant: { ...state.assistant },
       workflow: {
         transitions: state.workflow.transitions.map(t => ({
           from_status: t.from,

@@ -249,7 +249,7 @@ const JUDGEMENT_NAME = /sever|urgen|priorit|serious|criticality|impact/i;
  * DashboardMaster row (widget_name 'assistant_config') whose filter holds JSON
  * { "ask_area": true, "ask_spot": true, "ask_photo": true }. Missing keys mean true.
  */
-const ASSISTANT_CONFIG_WIDGET = 'assistant_config';
+const { ASSISTANT_CONFIG_WIDGET } = require('./assistantSettings');
 const DEFAULT_ASKS = { area: true, spot: true, photo: true };
 function parseAsks(rows) {
   const row = (rows || []).find((r) => r.widget_name === ASSISTANT_CONFIG_WIDGET);
