@@ -1,6 +1,7 @@
 import { requireAuth, getUser } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { entities as apiEntities, forms as apiForms, agent as agentApi, admin as apiAdmin } from '../api.js';
+import { getCurrentLanguage } from '../components/languageSelector.js';
 import { getStoredLocation, requestLocation, storeLocation, isLocationDismissed, dismissLocation, formatLocationForAgent } from '../utils/locationService.js';
 import { toastError } from '../components/toast.js';
 import { navigate } from '../router.js';
@@ -8,6 +9,14 @@ import { getCapabilityPresentation, capabilityIcon, formatStatusLabel } from '..
 import { renderAgentChatBar, attachAgentChatBarEvents } from '../components/AgentChatBar.js';
 import { renderCivicBuzzCardHtml, initCivicBuzzCarousel } from '../components/CivicBuzzCarousel.js';
 import { mountWardActivity } from '../components/wardActivity.js';
+
+// A reply the assistant already wrote in the citizen's language is left alone by
+// the page translator (it would otherwise translate it a second time).
+function inReplyLanguage(data, html) {
+  return data && data.lang && data.lang !== 'en'
+    ? `<div class="notranslate" style="display:contents" lang="${escapeHtml(data.lang)}">${html}</div>`
+    : html;
+}
 
 function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, c =>
@@ -847,13 +856,13 @@ function _attachCitizenCockpitEvents(user, myItems) {
     try {
       const _loc = getStoredLocation();
       const _locPrefix = formatLocationForAgent(_loc);
-      const res = await agentApi.chat(sessionId, _locPrefix + cleanText, file);
+      const res = await agentApi.chat(sessionId, _locPrefix + cleanText, file, getCurrentLanguage());
       document.getElementById('ck-dark-thinking')?.remove();
 
       const data = res.data;
 
       if (data.type === 'confirm') {
-        appendThreadHtml(renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:'));
+        appendThreadHtml(inReplyLanguage(data, renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:')));
         setTimeout(() => {
           document.getElementById('ck-dark-confirm-submit-btn')?.addEventListener('click', () => {
             document.getElementById('ck-dark-confirm-actions')?.remove();
@@ -865,7 +874,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
           });
         }, 50);
       } else if (data.type === 'submitted') {
-        appendThreadHtml(renderSuccessCard(data));
+        appendThreadHtml(inReplyLanguage(data, renderSuccessCard(data)));
         setTimeout(() => {
           document.getElementById('ck-dark-new-case-btn')?.addEventListener('click', () => {
             resetCockpit();
@@ -875,7 +884,7 @@ function _attachCitizenCockpitEvents(user, myItems) {
         const chips = Array.isArray(data.options) && data.options.length
           ? `<div class="assist-chips assist-chips-dark" role="group" aria-label="Suggested answers">${data.options.map((o) => `<button type="button" class="assist-chip" data-reply="${escapeHtml(o.value)}">${escapeHtml(o.label)}</button>`).join('')}</div>`
           : '';
-        appendThreadHtml(renderAgentBubble(data.text || 'Tell me a little more.') + chips);
+        appendThreadHtml(inReplyLanguage(data, renderAgentBubble(data.text || 'Tell me a little more.') + chips));
       }
     } catch (err) {
       document.getElementById('ck-dark-thinking')?.remove();

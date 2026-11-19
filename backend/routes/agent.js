@@ -20,6 +20,7 @@ const fs      = require('fs');
 const router  = express.Router();
 const { verifyToken }       = require('../middleware/auth');
 const { continueFormFilling, clearSession } = require('../services/agentFormFiller');
+const { isSupported } = require('../services/agentLanguage');
 
 // ── Reuse the same uploads directory as /files ────────────────────────────────
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
@@ -109,7 +110,9 @@ router.post(
         assignedArea: req.user.assignedArea || req.user.assigned_area || null,
       };
 
-      const result = await continueFormFilling(cleanSessionId, cleanMessage, user, [], attachedFile);
+      // The language picked in the app; the assistant also follows the script typed in.
+      const lang = typeof req.body?.lang === 'string' && isSupported(req.body.lang.trim()) ? req.body.lang.trim() : 'en';
+      const result = await continueFormFilling(cleanSessionId, cleanMessage, user, [], attachedFile, { lang });
 
       return res.status(200).json({ success: true, data: result });
     } catch (err) {

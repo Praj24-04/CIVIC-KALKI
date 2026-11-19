@@ -26,6 +26,7 @@ const prisma = require('../db');
 const understanding = require('./agentIntentRouter');
 const voice = require('./agentVoice');
 const aiClient = require('./aiClient');
+const language = require('./agentLanguage');
 const { validateWorkflowTransition, executeWorkflowTransition } = require('./workflowEngine');
 const { firstWorkflowStatus } = require('./ruleEngine');
 
@@ -854,7 +855,20 @@ function titleWaitMs() {
   return Number.isFinite(n) && n >= 0 ? n : 2500;
 }
 
-async function continueFormFilling(sessionId, userMessage, user, _unused = [], attachedFile = null) {
+/**
+ * One turn, answered in the citizen's language. The engine builds the reply in
+ * English; with the AI on it is then translated (agentLanguage.localizeReply).
+ * @param {object} [options] { lang } the language picked in the app
+ */
+async function continueFormFilling(sessionId, userMessage, user, _unused = [], attachedFile = null, options = {}) {
+  const lang = language.replyLanguage(options && options.lang, userMessage);
+  const reply = await englishTurn(sessionId, userMessage, user, attachedFile, lang);
+  const session = sessions.get(sessionId);
+  if (session && session.userId === user.user_id) session.replyLang = lang;
+  return language.localizeReply(reply, lang);
+}
+
+async function englishTurn(sessionId, userMessage, user, attachedFile = null, lang = 'en') {
   let reply = await conversationTurn(sessionId, userMessage, user, attachedFile);
   const ask = reply && reply._ask;
   if (reply) delete reply._ask;
@@ -882,7 +896,8 @@ async function continueFormFilling(sessionId, userMessage, user, _unused = [], a
   // A short answer (a tapped choice, "skip", an area name) gets the next
   // question straight away; rewording is kept for replies in the resident's own words.
   const short = /^__/.test(said) || said.split(/\s+/).filter(Boolean).length <= 3;
-  if (!ask || !session || !session.service || reply.invalid || !ask.subjectWords.length || short) {
+  // Rewording is checked against English words; another language is translated instead.
+  if (!ask || !session || !session.service || reply.invalid || !ask.subjectWords.length || short || lang !== 'en') {
     ensureTitle(session, user);
     return { ...reply, voice: 'rules' };
   }

@@ -19,6 +19,7 @@
 import { requireAuth } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { agent as agentApi } from '../api.js';
+import { getCurrentLanguage } from '../components/languageSelector.js';
 import { getStoredLocation, requestLocation, storeLocation, isLocationDismissed, dismissLocation, formatLocationForAgent } from '../utils/locationService.js';
 import { navigate } from '../router.js';
 
@@ -200,6 +201,14 @@ function renderThinkingBubble() {
 
 // ── Thread management ─────────────────────────────────────────────────────────
 
+// A reply the assistant already wrote in the citizen's language is left alone by
+// the page translator (it would otherwise translate it a second time).
+function inReplyLanguage(data, html) {
+  return data && data.lang && data.lang !== 'en'
+    ? `<div class="notranslate" style="display:contents" lang="${escapeHtml(data.lang)}">${html}</div>`
+    : html;
+}
+
 function getThread() { return document.getElementById('agent-thread'); }
 function getInput() { return document.getElementById('agent-input'); }
 function getSendBtn() { return document.getElementById('agent-send-btn'); }
@@ -379,7 +388,7 @@ async function sendMessage(message, explicitFile = null) {
   try {
     const _agentLoc = getStoredLocation();
     const _locPfx = formatLocationForAgent(_agentLoc);
-    const res = await agentApi.chat(sessionId, _locPfx + cleanMsg, fileToUpload);
+    const res = await agentApi.chat(sessionId, _locPfx + cleanMsg, fileToUpload, getCurrentLanguage());
     removeThinking();
 
     const data = res.data;
@@ -389,7 +398,7 @@ async function sendMessage(message, explicitFile = null) {
 
     if (data.type === 'confirm') {
       pendingConfirmData = data;
-      appendHtml(renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:'));
+      appendHtml(inReplyLanguage(data, renderConfirmCard(data.summary || [], data.lead || 'Here is what I will send:')));
 
       // Wire confirm/cancel buttons
       setTimeout(() => {
@@ -414,7 +423,7 @@ async function sendMessage(message, explicitFile = null) {
         }
       }, 50);
     } else if (data.type === 'submitted') {
-      appendHtml(renderSuccessCard(data));
+      appendHtml(inReplyLanguage(data, renderSuccessCard(data)));
       setInputEnabled(false); // Finished
 
       setTimeout(() => {
@@ -427,7 +436,7 @@ async function sendMessage(message, explicitFile = null) {
       }, 50);
     } else {
       // question, status, guidance, unclear, cancelled, error
-      appendHtml(renderAgentBubble(data.text || 'Something went wrong. Please try again.', data.voice) + renderQuickReplies(data.options));
+      appendHtml(inReplyLanguage(data, renderAgentBubble(data.text || 'Something went wrong. Please try again.', data.voice) + renderQuickReplies(data.options)));
     }
   } catch (err) {
     removeThinking();

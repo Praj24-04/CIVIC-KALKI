@@ -402,6 +402,91 @@ describe('Civic assistant', () => {
   });
 
   // ── With the AI understanding the words ────────────────────────────────────
+  // ── The citizen's language (A2) ───────────────────────────────────────────
+  describe("the citizen's language", () => {
+    const L = require('../services/agentLanguage');
+    // A scripted translator: Marathi = "[mr] " + the English, in Devanagari letters for the script check.
+    const translateLike = (prefix) => async (payload) => {
+      const p = Array.isArray(payload) ? payload[0] : String(payload);
+      if (p.includes('Translate these messages')) {
+        const items = JSON.parse(p.slice(p.indexOf('MESSAGES:') + 9, p.indexOf('Return JSON only')).trim());
+        return reply({ translations: items.map((t) => `${prefix} ${t}`) });
+      }
+      if (p.includes('Decide what they want')) return reply({ intent: 'file', service_id: grievance.entity_type_id, candidate_ids: [] });
+      if (p.includes('extract facts')) return reply({ intent: 'answer', values: {}, area: null, place: null });
+      return reply({ text: 'not usable' });
+    };
+    beforeEach(() => { L._cache.clear(); process.env.GEMINI_API_KEY = 'test-key'; });
+
+    test('the reply language follows what the citizen typed, then the language they picked', () => {
+      expect(L.replyLanguage('mr', 'आमच्या सोसायटीत पाणी येत नाही')).toBe('mr');
+      expect(L.replyLanguage('en', 'हमारी गली में पानी नहीं आ रहा')).toBe('hi'); // Devanagari, nothing picked
+      expect(L.replyLanguage('en', 'எங்கள் தெருவில் விளக்கு எரியவில்லை')).toBe('ta');
+      expect(L.replyLanguage('as', 'আমাৰ ৰাস্তাত পানী নাই')).toBe('as');
+      expect(L.replyLanguage('mr', 'no water since 2 days')).toBe('mr'); // typed in English, Marathi picked
+      expect(L.replyLanguage('xx', 'hello')).toBe('en');
+    });
+
+    test('text, chip labels and summary labels are translated; chip values and answers are not', async () => {
+      mockGenerate.mockImplementation(translateLike('मराठी'));
+      const out = await L.localizeReply({
+        type: 'confirm', text: 'Here is what I will send. Ref PR-00042?', lead: 'Here is what I will send:',
+        options: [{ label: 'Somewhere else', value: 'somewhere else' }],
+        summary: [{ label: 'Severity', value: 'Severe' }],
+      }, 'mr');
+      expect(out.lang).toBe('mr');
+      expect(out.text).toBe('मराठी Here is what I will send. Ref PR-00042?');
+      expect(out.options).toEqual([{ label: 'मराठी Somewhere else', value: 'somewhere else' }]);
+      expect(out.summary).toEqual([{ label: 'मराठी Severity', value: 'Severe' }]);
+      // Cached: the same sentences again need no AI call.
+      mockGenerate.mockClear();
+      await L.localizeReply({ type: 'question', text: 'Here is what I will send. Ref PR-00042?' }, 'mr');
+      expect(mockGenerate).not.toHaveBeenCalled();
+    });
+
+    test('a translation in the wrong script, or one that drops a number, is not shown', async () => {
+      mockGenerate.mockImplementation(async () => reply({ translations: ['ಧನ್ಯವಾದಗಳು ಇದು ಯಾವ area?'] }));
+      const wrongScript = await L.localizeReply({ type: 'question', text: 'Thanks. Which area is this in?' }, 'mr');
+      expect(wrongScript.text).toBe('Thanks. Which area is this in?');
+      expect(wrongScript.lang).toBeUndefined();
+      mockGenerate.mockImplementation(async () => reply({ translations: ['तुमचा संदर्भ PR-00 आहे'] }));
+      const lostNumber = await L.localizeReply({ type: 'submitted', text: 'Done. Your reference is PR-00042.' }, 'mr');
+      expect(lostNumber.text).toBe('Done. Your reference is PR-00042.');
+    });
+
+    test('without AI, or in English, the reply is unchanged', async () => {
+      delete process.env.GEMINI_API_KEY;
+      const r = { type: 'question', text: 'Which area is this in?' };
+      expect(await L.localizeReply(r, 'mr')).toBe(r);
+      process.env.GEMINI_API_KEY = 'test-key';
+      expect(await L.localizeReply(r, 'en')).toBe(r);
+    });
+
+    test('a whole conversation in Marathi: questions translated, the form still filled with its own choices', async () => {
+      mockGenerate.mockImplementation(translateLike('मराठी'));
+      const id = sid();
+      const sayIn = (text) => continueFormFilling(id, text, citizenUser, [], null, { lang: 'mr' });
+      let r = await sayIn("There's a pothole outside my building");
+      expect(r.lang).toBe('mr');
+      expect(r.text).toMatch(/^मराठी /);
+      expect(r.options.map((o) => o.value)).toEqual(['Infrastructure', 'Sanitation', 'Safety', 'Utilities', 'Public Transport', 'Water Supply', 'Noise Pollution', 'Other']);
+      r = await sayIn('Infrastructure'); // a tapped chip sends the English value
+      expect(_sessions.get(id).draft.category).toBe('Infrastructure');
+      expect(r.voice).toBe('rules'); // no English rewording on a translated reply
+    });
+
+    test('the chat route passes the picked language through', async () => {
+      mockGenerate.mockImplementation(translateLike('मराठी'));
+      const res = await request(app).post('/agent/chat').set(citizen.headers)
+        .send({ sessionId: sid(), message: "There's a pothole outside my building", lang: 'mr' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.lang).toBe('mr');
+      const unknown = await request(app).post('/agent/chat').set(citizen.headers)
+        .send({ sessionId: sid(), message: "There's a pothole outside my building", lang: 'klingon' });
+      expect(unknown.body.data.lang).toBeUndefined(); // unknown language: English
+    });
+  });
+
   // ── Field roles and module settings come from metadata (A1a) ─────────────
   describe('field roles and module settings', () => {
     let custom; // a module built like the No-Code Builder would, with odd field names
