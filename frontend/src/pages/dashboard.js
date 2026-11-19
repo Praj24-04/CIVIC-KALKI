@@ -2,6 +2,7 @@ import { requireAuth, getUser } from '../auth.js';
 import { renderLayout, attachLayoutEvents } from '../components/layout.js';
 import { entities as apiEntities, forms as apiForms, agent as agentApi, admin as apiAdmin } from '../api.js';
 import { getCurrentLanguage } from '../components/languageSelector.js';
+import { shrinkPhoto, SERVER_LIMIT_BYTES } from '../utils/photo.js';
 import { getStoredLocation, requestLocation, storeLocation, isLocationDismissed, dismissLocation, formatLocationForAgent } from '../utils/locationService.js';
 import { toastError } from '../components/toast.js';
 import { navigate } from '../router.js';
@@ -655,9 +656,24 @@ function _attachCitizenCockpitEvents(user, myItems) {
   }
 
   attachBtn?.addEventListener('click', () => fileInput?.click());
-  fileInput?.addEventListener('change', (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // A photo picked after the assistant's "Add a photo" chip is sent straight
+  // away; one picked with the paperclip waits for Send, with a preview.
+  let photoRequested = false;
+  fileInput?.addEventListener('change', async (e) => {
+    const picked = e.target.files?.[0];
+    if (!picked) return;
+    const file = await shrinkPhoto(picked);
+    if (fileInput) fileInput.value = '';
+    if (file.size > SERVER_LIMIT_BYTES) {
+      appendThreadHtml(renderAgentBubble('That file is larger than 10 MB, so I cannot take it. Please choose a smaller one.'));
+      photoRequested = false;
+      return;
+    }
+    if (photoRequested) {
+      photoRequested = false;
+      sendCockpitMessage('', file);
+      return;
+    }
     pendingFile = file;
     updateAttachmentPreview();
     inputEl?.focus();
@@ -814,9 +830,30 @@ function _attachCitizenCockpitEvents(user, myItems) {
 
   // 5. Core Send Message Function inside Dark Card
   // A tapped suggestion is sent as the answer.
-  threadEl?.addEventListener('click', (e) => {
+  // Two chips act on the device instead of sending words: pick a photo, or
+  // share the location (as on the full chat page).
+  threadEl?.addEventListener('click', async (e) => {
     const chip = e.target.closest('.assist-chip');
-    if (chip) sendCockpitMessage(chip.getAttribute('data-reply'));
+    if (!chip) return;
+    const reply = chip.getAttribute('data-reply');
+    if (reply === '__attach_photo') {
+      photoRequested = true;
+      fileInput?.click();
+      return;
+    }
+    if (reply === '__share_location') {
+      if (!getStoredLocation()) {
+        try {
+          await requestLocation();
+        } catch {
+          appendThreadHtml(renderAgentBubble('I could not get your location. You can type a landmark or street name instead.'));
+          return;
+        }
+      }
+      sendCockpitMessage("It's right where I am");
+      return;
+    }
+    sendCockpitMessage(reply);
   });
 
   async function sendCockpitMessage(textToSend, explicitFile = null) {

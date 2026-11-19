@@ -402,6 +402,52 @@ describe('Civic assistant', () => {
   });
 
   // ── With the AI understanding the words ────────────────────────────────────
+  // ── Bugs seen in the home card (19 Nov) ──────────────────────────────────
+  describe('one acknowledgement, and chip values are never words', () => {
+    test('AI wording gets the bare question, so the reply never apologises or thanks twice', async () => {
+      process.env.GEMINI_API_KEY = 'test-key';
+      let voicePrompt = '';
+      mockGenerate.mockImplementation(async (payload) => {
+        const p = Array.isArray(payload) ? payload[0] : String(payload);
+        if (p.includes('Decide what they want')) return reply({ intent: 'file', service_id: grievance.entity_type_id, candidate_ids: [] });
+        if (p.includes('extract facts')) return reply({ intent: 'answer', values: {}, area: null, place: null });
+        if (p.includes('voice of a city')) {
+          voicePrompt = p;
+          return reply({ text: 'Sorry to hear about the food. What exactly is happening with the food, what do you see?' });
+        }
+        return reply({ title: 'Food problem' });
+      });
+      const id = sid();
+      const r = await say(id, 'i want to lodge a complaint about food issue');
+      expect(_sessions.get(id).asked).toBe('__detail');
+      const asked = voicePrompt.match(/MUST ASK EXACTLY THIS \(same meaning, nothing else\): "([^"]*)"/)[1];
+      expect(asked).toMatch(/^What exactly is happening with the food\?/);
+      expect(asked).not.toMatch(/sorry/i);
+      expect(r.voice).toBe('ai');
+      expect(r.text).toBe('Sorry to hear about the food. What exactly is happening with the food, what do you see?');
+      expect((r.text.match(/sorry/gi) || []).length).toBe(1);
+    });
+
+    test('without usable AI wording, the engine says sorry once, then asks', async () => {
+      const id = sid();
+      let r = await say(id, 'i want to lodge a complaint about food issue');
+      if (/Is that right\?/.test(r.text)) r = await say(id, 'yes'); // rules check which service first
+      expect(r.text).toBe('I am sorry you are dealing with this. What exactly is happening with the food? Tell me what you see, in a sentence or two, so the team knows what to fix.');
+    });
+
+    test('"__attach_photo" sent as a message asks for the photo and is never filed as text', async () => {
+      const id = sid();
+      let r = await say(id, "There's a pothole outside my building");
+      for (const t of ['infrastructure', 'severe', WARD]) r = await say(id, t);
+      expect(_sessions.get(id).asked).toBe('__photo');
+      const before = JSON.stringify(_sessions.get(id).draft);
+      r = await say(id, '__attach_photo');
+      expect(r.text).toMatch(/add the photo with the camera or paperclip/);
+      expect(JSON.stringify(_sessions.get(id).draft)).toBe(before);
+      expect(_sessions.get(id).said).not.toContain('__attach_photo');
+    });
+  });
+
   // ── The citizen's language (A2) ───────────────────────────────────────────
   describe("the citizen's language", () => {
     const L = require('../services/agentLanguage');

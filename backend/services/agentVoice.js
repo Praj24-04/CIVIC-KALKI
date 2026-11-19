@@ -71,7 +71,7 @@ ${facts ? `WHAT YOU ALREADY KNOW:\n${facts}\n` : ''}${firstName ? `THEIR FIRST N
 YOUR NEXT MESSAGE MUST ASK EXACTLY THIS (same meaning, nothing else): "${reply.text}"
 
 Write that next message:
-- Start with a short, natural acknowledgement of what they just said (restate it in your own words, no more than one short sentence). Do not repeat a greeting every time.
+- Start with ONE short, natural acknowledgement of what they just said (restate it in your own words, one short sentence). Only one: never apologise or thank twice. Do not repeat a greeting every time.
 - Then ask the question above, in plain everyday words. If it lists choices, keep every choice.
 - The question is about the problem being reported (where it is, what it looks like), never about the resident themselves.
 - At most 4 short sentences and ${MAX_CHARS} characters, and it must contain the question with a question mark.

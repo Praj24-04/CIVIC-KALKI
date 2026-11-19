@@ -8,7 +8,8 @@
     "demo:reset": "npm --prefix backend run demo:reset",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
-    "ai:check": "npm --prefix backend run ai:check --silent"
+    "ai:check": "npm --prefix backend run ai:check --silent",
+    "assistant:upgrade": "npm --prefix backend run assistant:upgrade --silent"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

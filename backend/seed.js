@@ -622,7 +622,9 @@ const MODULE_DEFINITIONS = [
 //  MAIN
 // ════════════════════════════════════════════════════════════════════════════
 
-(async () => {
+// Runs only when started as a script (node seed.js); other scripts may import
+// the definitions below without seeding anything.
+if (require.main === module) (async () => {
   try {
     // ── 0. Ensure Domain exists ──
     let domain = await prisma.domain.findFirst({ where: { domain_name: 'Civic Operations' } });
@@ -1330,3 +1332,5 @@ async function seedCaseFlagConfig() {
   }
   console.log('  Case panel flag rules seeded.');
 }
+
+module.exports = { MODULE_DEFINITIONS, ASSISTANT_CONFIG };

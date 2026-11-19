@@ -445,7 +445,7 @@ function isThin(text) {
 function detailQuestion(session) {
   const topic = understanding.tokens(ruleSubject(session.said[0] || '')).filter((w) => !VAGUE_WORDS.has(w))[0];
   const about = topic ? ` with the ${topic}` : '';
-  return `I am sorry you are dealing with this. What exactly is happening${about}? Tell me what you see, in a sentence or two, so the team knows what to fix.`;
+  return `What exactly is happening${about}? Tell me what you see, in a sentence or two, so the team knows what to fix.`;
 }
 
 function placeQuestion(session) {
@@ -742,7 +742,9 @@ function nextStep(session, wards, lead = '') {
   const ask = (key, text, options, subjectWords, mustInclude = []) => {
     session.phase = 'collecting';
     session.asked = key;
-    return { type: 'question', text: say(text), options, _ask: { subjectWords, mustInclude } };
+    // _ask.question is the question alone, without the lead ("Thanks."): AI
+    // rewording writes its own acknowledgement in place of the lead, never beside it.
+    return { type: 'question', text: say(text), options, _ask: { subjectWords, mustInclude, question: text } };
   };
   if (gaps.detail) {
     return ask('__detail', detailQuestion(session), undefined, ['what', 'happening', 'tell', 'describe', 'see']);
@@ -807,7 +809,9 @@ async function startService(session, svc, user, wards, firstMessage) {
   absorb(session, values);
   if (read.ward) session.ward = read.ward;
   if (read.place) session.place = read.place;
-  return nextStep(session, wards, session.needDetail ? '' : 'Thanks for telling me, I am sorry you are dealing with this. I will help you report it.');
+  return nextStep(session, wards, session.needDetail
+    ? 'I am sorry you are dealing with this.'
+    : 'Thanks for telling me, I am sorry you are dealing with this. I will help you report it.');
 }
 
 /**
@@ -902,7 +906,7 @@ async function englishTurn(sessionId, userMessage, user, attachedFile = null, la
     return { ...reply, voice: 'rules' };
   }
   const wording = voice.speak({
-    reply,
+    reply: { ...reply, text: ask.question || reply.text },
     citizenSaid: said,
     serviceLabel: session.service.label,
     known: summaryOf(session).filter((r) => r.label !== 'Your name'),
@@ -914,7 +918,8 @@ async function englishTurn(sessionId, userMessage, user, attachedFile = null, la
   ensureTitle(session, user);
   const worded = await wording;
   noteAi(session, worded);
-  return { ...reply, text: worded.text, voice: worded.voice };
+  // AI wording replaces lead and question; otherwise the engine's full sentence stays.
+  return worded.voice === 'ai' ? { ...reply, text: worded.text, voice: 'ai' } : { ...reply, voice: 'rules' };
 }
 
 async function conversationTurn(sessionId, userMessage, user, attachedFile) {
@@ -928,6 +933,16 @@ async function conversationTurn(sessionId, userMessage, user, attachedFile) {
   if (device && device.latitude !== null) session.coords = { latitude: device.latitude, longitude: device.longitude };
   const message = String(userMessage || '').replace(/\[(?:User )?location:[^\]]*\]/gi, '').trim();
   const onlyAttachment = Boolean(attachedFile) && /^i have uploaded an attachment/i.test(message);
+
+  // A chip's internal value is an action for the screen, never words from the
+  // resident. If a screen sends one anyway, it is answered, not filed as text.
+  if (/^__[a-z_]+$/.test(message) && message !== '__share_location' && !attachedFile) {
+    const s0 = sessions.get(sessionId);
+    if (message === '__attach_photo') {
+      return { type: 'question', text: 'Please add the photo with the camera or paperclip button below, or say "no photo".', options: PHOTO_CHIPS };
+    }
+    return s0 && s0.service ? nextStep(s0, await loadWards()) : { type: 'guidance', text: OPENING };
+  }
 
   const [catalog, wards] = await Promise.all([loadServiceCatalog(user.role), loadWards()]);
   // The phone's position names an area we cover: offer it when asking where.
